@@ -39,6 +39,28 @@ button.primary {
 button.primary:hover { background: #4381f5; }
 button.primary:disabled { background: #333945; border-color: #333945; color: #777; cursor: default; }
 
+/* ------------------------------------------------- panel materialow */
+#materialsList { display: flex; flex-direction: column; gap: 8px; }
+.mat-row {
+  background: #14161a; border: 1px solid #262b33; border-radius: 5px;
+  padding: 6px 8px;
+}
+.mat-row .mat-name {
+  font-size: 12px; color: #dfe3e9; margin-bottom: 5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mat-slots { display: flex; flex-wrap: wrap; gap: 5px; }
+.mslot {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  font-size: 9px; color: #7c8492; cursor: default;
+}
+.mslot canvas {
+  width: 34px; height: 34px; background: #101216;
+  border: 1px dashed #3a4150; border-radius: 3px;
+}
+.mslot.filled canvas { border-style: solid; border-color: #3f7d4f; }
+.mslot.dragover canvas { border-color: #2f6fed; }
+
 #bakeLodsRow {
   display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 4px 0 8px;
 }

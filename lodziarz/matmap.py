@@ -60,6 +60,30 @@ def apply_texture_overrides(asset: Asset, source_path: Path,
         _apply_name_convention(mat, index, log)
 
 
+def apply_manual_assignments(asset: Asset, mapping: dict,
+                             log: PipelineLog) -> None:
+    """Mapy przypisane recznie w GUI: {material: {slot: sciezka}} — nadpisuja
+    wszystko (forced)."""
+    if not mapping:
+        return
+    by_name = {m.name: m for m in asset.materials}
+    for mat_name, slots in mapping.items():
+        mat = by_name.get(mat_name)
+        if mat is None:
+            log.warn(f"przypisanie map: nieznany material '{mat_name}'")
+            continue
+        for key, raw in (slots or {}).items():
+            if key not in SUFFIXES or not raw:
+                continue
+            p = Path(raw)
+            if not p.exists():
+                log.warn(f"  {mat_name}: {key} nie istnieje: {raw}")
+                continue
+            img = _open(p, log)
+            if img is not None:
+                _assign(mat, key, img, p.name, log, forced=True)
+
+
 def _load_sidecar(source_path: Path, log: PipelineLog) -> dict:
     p = Path(str(source_path) + ".textures.json")
     if not p.exists():
@@ -112,6 +136,8 @@ def _assign(mat: MaterialData, key: str, img: Image.Image,
             mat.occlusion_tex = img
             mat.roughness_tex = img
             mat.metallic_tex = img
+            mat.roughness_factor = 1.0
+            mat.metallic_factor = 1.0
             log.info(f"  {mat.name}: ORM <- {src_name}")
         return
     if key == "gloss":
@@ -123,6 +149,19 @@ def _assign(mat: MaterialData, key: str, img: Image.Image,
     attr = slot_attr[key]
     if forced or getattr(mat, attr) is None:
         setattr(mat, attr, img)
+        # factory z pliku nie moga tlumic jawnie przypisanej mapy
+        # (UE-FBX trzyma czesto ciemne/zerowe diffuse factory)
+        if key == "basecolor":
+            a = mat.base_color_factor[3] if len(mat.base_color_factor) > 3 else 1.0
+            mat.base_color_factor = (1.0, 1.0, 1.0, a)
+        elif key == "roughness":
+            mat.roughness_factor = 1.0
+        elif key == "metallic":
+            mat.metallic_factor = 1.0
+        elif key == "emissive":
+            mat.emissive_factor = (1.0, 1.0, 1.0)
+        elif key == "opacity":
+            mat.opacity_factor = 1.0
         log.info(f"  {mat.name}: {key} <- {src_name}")
 
 

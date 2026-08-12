@@ -48,6 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--embed-textures", action="store_true",
                     help="wbuduj tekstury do pliku FBX")
     pr.add_argument("--no-glb", action="store_true", help="bez exportu GLB")
+    pr.add_argument("--up", default="auto", choices=["auto", "y", "z"],
+                    help="orientacja zrodla: auto (z pliku), y (Maya/Unity), "
+                         "z (UE/3ds Max)")
 
     g = sub.add_parser("gui", help="uruchom GUI z viewerem (default)")
     g.add_argument("--browser", action="store_true",
@@ -102,6 +105,7 @@ def run_process(args) -> int:
         fbx_per_lod=args.per_lod_fbx,
         fbx_embed_textures=args.embed_textures,
         export_glb=not args.no_glb,
+        up_axis=args.up,
     )
     files = _collect_inputs(args.input)
     if not files:

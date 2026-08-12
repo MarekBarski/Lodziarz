@@ -6,10 +6,14 @@ Dziala w dwoch trybach:
 """
 from __future__ import annotations
 
+import base64
 import json
+import re
 import socket
+import tempfile
 import threading
 import urllib.parse
+from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -37,8 +41,13 @@ class AppState:
         self.lock = threading.Lock()
         self.running = False
         self.log: PipelineLog | None = None
-        self.result: ProcessResult | None = None
-        self.out_root: Path | None = None   # katalog serwowany pod /out/
+        self.result: dict | None = None      # {'kind': 'load'|'process', ...}
+        self.out_root: Path | None = None    # katalog serwowany pod /out/
+        # stan wczytanego assetu (krok "Wczytaj" przed "Process")
+        self.asset = None
+        self.asset_path: str = ""
+        self.material_textures: dict = {}    # {material: {slot: sciezka}}
+        self.workdir = Path(tempfile.mkdtemp(prefix="lodziarz_gui_"))
 
 
 STATE = AppState()
@@ -78,11 +87,14 @@ class Handler(BaseHTTPRequestHandler):
                     "percent": log.percent if log else 0,
                     "stage": log.stage if log else "",
                     "log": log.lines if log else [],
-                    "result": STATE.result.__dict__ if STATE.result else None,
+                    "result": STATE.result,
                 })
             return
         if path.startswith("/out/"):
             self._serve_file_from(STATE.out_root, path[len("/out/"):])
+            return
+        if path.startswith("/work/"):
+            self._serve_file_from(STATE.workdir, path[len("/work/"):])
             return
         if path == "/":
             path = "/index.html"
@@ -116,10 +128,99 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/process":
             self._api_process(payload)
+        elif path == "/api/load":
+            self._api_load(payload)
+        elif path == "/api/assign_texture":
+            self._api_assign_texture(payload)
         elif path == "/api/dialog":
             self._api_dialog(payload)
         else:
             self._json({"error": "nieznane API"}, 404)
+
+    def _api_load(self, p: dict):
+        """Import assetu + preview GLB + lista materialow — bez przetwarzania."""
+        with STATE.lock:
+            if STATE.running:
+                self._json({"error": "operacja juz trwa"}, 409)
+                return
+            input_path = Path(p.get("input", ""))
+            if not input_path.is_file():
+                self._json({"error": f"plik nie istnieje: {input_path}"}, 400)
+                return
+            up = str(p.get("up", "auto"))
+            STATE.running = True
+            STATE.log = PipelineLog(echo=True)
+            STATE.result = None
+
+        def work():
+            log = STATE.log
+            result: dict = {"kind": "load", "ok": False}
+            try:
+                from ..core import LodChain
+                from ..exporter.glb import export_glb
+                from ..importer import load_asset
+                log.progress(10, "import")
+                asset = load_asset(input_path, log, force_up=up)
+                log.progress(70, "preview")
+                chain = LodChain(asset_name=asset.name, lods=[asset.mesh],
+                                 materials=asset.materials,
+                                 baked=[False], baked_material_index=None)
+                export_glb(chain, STATE.workdir / "preview.glb", {}, log)
+                mats = []
+                for m in asset.materials:
+                    mats.append({"name": m.name, "maps": {
+                        "basecolor": m.base_color_tex is not None,
+                        "normal": m.normal_tex is not None,
+                        "occlusion": m.occlusion_tex is not None,
+                        "roughness": m.roughness_tex is not None,
+                        "metallic": m.metallic_tex is not None,
+                        "emissive": m.emissive_tex is not None,
+                        "opacity": m.opacity_tex is not None,
+                    }})
+                result.update(
+                    ok=True, preview="/work/preview.glb",
+                    materials=mats,
+                    stats={"tris": int(asset.mesh.triangle_count),
+                           "verts": int(asset.mesh.vertex_count)},
+                    up_detected=asset.source_up_axis)
+                # nowy plik = czyste przypisania map
+                if STATE.asset_path != str(input_path):
+                    STATE.material_textures = {}
+                STATE.asset = asset
+                STATE.asset_path = str(input_path)
+                log.progress(100, "wczytano")
+            except Exception as e:
+                log.error(f"{type(e).__name__}: {e}")
+                result["error"] = str(e)
+            with STATE.lock:
+                STATE.result = result
+                STATE.running = False
+
+        threading.Thread(target=work, daemon=True).start()
+        self._json({"started": True})
+
+    def _api_assign_texture(self, p: dict):
+        """Zapis mapy z drag&drop do workdir + rejestracja przypisania."""
+        mat = str(p.get("material", ""))
+        slot = str(p.get("slot", ""))
+        fname = str(p.get("filename", "tex.png"))
+        data = p.get("data", "")
+        if not mat or not slot or not data:
+            self._json({"error": "brak material/slot/data"}, 400)
+            return
+        try:
+            raw = base64.b64decode(data.split(",", 1)[-1])
+        except Exception:
+            self._json({"error": "zly base64"}, 400)
+            return
+        ext = Path(fname).suffix.lower() or ".png"
+        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", f"{mat}_{slot}{ext}")
+        target = STATE.workdir / "matmaps" / safe
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+        with STATE.lock:
+            STATE.material_textures.setdefault(mat, {})[slot] = str(target)
+        self._json({"ok": True, "path": str(target)})
 
     def _api_process(self, p: dict):
         with STATE.lock:
@@ -150,6 +251,10 @@ class Handler(BaseHTTPRequestHandler):
                 fbx_per_lod=bool(p.get("perLodFbx", False)),
                 fbx_embed_textures=bool(p.get("embedTextures", False)),
                 export_glb=True,  # viewer potrzebuje GLB
+                up_axis=str(p.get("up", "auto")),
+                material_textures=dict(STATE.material_textures)
+                    if STATE.material_textures
+                       and STATE.asset_path == str(input_path) else None,
             )
             STATE.running = True
             STATE.log = PipelineLog(echo=True)
@@ -160,7 +265,7 @@ class Handler(BaseHTTPRequestHandler):
             # subprocess: crash natywny (ufbx/GL/FBX SDK) nie zabija GUI
             result = run_isolated(input_path, out_dir, opts, STATE.log)
             with STATE.lock:
-                STATE.result = result
+                STATE.result = {"kind": "process", **asdict(result)}
                 STATE.running = False
 
         threading.Thread(target=work, daemon=True).start()

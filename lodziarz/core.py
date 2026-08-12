@@ -78,6 +78,7 @@ class Asset:
     mesh: MeshData
     materials: list[MaterialData] = field(default_factory=list)
     source_path: str = ""
+    source_up_axis: str = "y"   # 'y' (Maya/Unity/glTF) | 'z' (UE/3ds Max)
 
 
 @dataclass

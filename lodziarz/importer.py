@@ -18,7 +18,9 @@ SUPPORTED = {".fbx", ".obj", ".gltf", ".glb"}
 _SCENE_KEEPALIVE: list = []
 
 
-def load_asset(path: str | Path, log: PipelineLog) -> Asset:
+def load_asset(path: str | Path, log: PipelineLog,
+               force_up: str = "auto") -> Asset:
+    """force_up: 'auto' (z pliku; FBX niesie te informacje) | 'y' | 'z'."""
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"plik nie istnieje: {p}")
@@ -32,6 +34,8 @@ def load_asset(path: str | Path, log: PipelineLog) -> Asset:
         asset = load_fbx_isolated(p, log)
     else:
         asset = _load_trimesh(p, log)
+
+    _apply_up_axis(asset, ext, force_up, log)
     asset.mesh.validate()
     if asset.mesh.triangle_count == 0:
         raise ValueError("zaimportowano 0 trojkatow — plik pusty albo sama hierarchia")
@@ -62,6 +66,12 @@ def _load_fbx(path: Path, log: PipelineLog) -> Asset:
         raise ValueError(f"ufbx nie potrafi otworzyc pliku: {e}") from e
 
     unit = getattr(scene.settings, "unit_meters", 0.01) or 0.01
+    # os pionowa z ustawien sceny: enum 4/5 = +Z/-Z (UE, 3ds Max), 2/3 = +/-Y
+    try:
+        up_enum = int(scene.settings.axes.up)
+    except (AttributeError, TypeError, ValueError):
+        up_enum = 2
+    up_axis = "z" if up_enum in (4, 5) else "y"
 
     # mapowanie material -> globalny indeks
     materials: list[MaterialData] = []
@@ -128,7 +138,7 @@ def _load_fbx(path: Path, log: PipelineLog) -> Asset:
     if not materials:
         materials.append(MaterialData(name="Default"))
     return Asset(name=path.stem, mesh=mesh, materials=materials,
-                 source_path=str(path))
+                 source_path=str(path), source_up_axis=up_axis)
 
 
 def _extract_ufbx_mesh(node, mesh, unit: float, material_id) -> tuple:
@@ -199,6 +209,31 @@ def _extract_ufbx_mesh(node, mesh, unit: float, material_id) -> tuple:
 
     return (p_world.astype(np.float32), nrm.astype(np.float32),
             uv.astype(np.float32), np.array(tri_mats, dtype=np.int32))
+
+
+def _apply_up_axis(asset: Asset, ext: str, force_up: str,
+                   log: PipelineLog) -> None:
+    """Normalizacja do Y-up (wewnetrzna konwencja = glTF/viewer).
+
+    FBX niesie os w naglowku (UE/3ds Max = Z-up, Maya/Unity = Y-up);
+    glTF zawsze Y-up; OBJ nie mowi nic — stad reczny override force_up.
+    """
+    force_up = (force_up or "auto").lower()
+    if force_up == "z":
+        up = "z"
+    elif force_up == "y":
+        up = "y"
+    else:
+        up = asset.source_up_axis if ext == ".fbx" else "y"
+    if up != "z":
+        return
+    log.info("orientacja: Z-up (UE/3ds Max) -> konwersja do Y-up")
+    m = asset.mesh
+    # (x, y, z) -> (x, z, -y)
+    for arr in (m.positions, m.normals):
+        y = arr[:, 1].copy()
+        arr[:, 1] = arr[:, 2]
+        arr[:, 2] = -y
 
 
 def _default_material(materials: list[MaterialData]) -> int:

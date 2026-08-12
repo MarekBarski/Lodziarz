@@ -27,9 +27,24 @@
         <button id="browseInput" title="wybierz plik">…</button>
       </div>
       <div class="row">
+        <label style="flex-direction:row;align-items:center;gap:6px;flex:1">os pionowa
+          <select id="upAxis" title="auto czyta z pliku (FBX); Z-up = UE / 3ds Max">
+            <option value="auto" selected>auto</option>
+            <option value="y">Y-up (Maya/Unity)</option>
+            <option value="z">Z-up (UE/Max)</option>
+          </select>
+        </label>
+        <button id="loadBtn" class="primary" style="width:auto;margin:0;padding:5px 16px">Wczytaj</button>
+      </div>
+      <div class="row">
         <input id="outPath" type="text" placeholder="folder wyjsciowy">
         <button id="browseOut" title="wybierz folder">…</button>
       </div>
+    </section>
+
+    <section id="materialsSection" style="display:none">
+      <h2>Materialy <span id="matCount"></span></h2>
+      <div id="materialsList"></div>
     </section>
 
     <section>

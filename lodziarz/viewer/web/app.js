@@ -191,10 +191,15 @@ const loader = new GLTFLoader();
 
 function countGeo(node) {
   let tris = 0, verts = 0;
+  const seenPos = new Set();  // primitives moga dzielic bufor pozycji
   node.traverse((o) => {
     if (o.isMesh && o.geometry) {
-      verts += o.geometry.attributes.position.count;
-      tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
+      const pos = o.geometry.attributes.position;
+      if (!seenPos.has(pos.uuid)) {
+        seenPos.add(pos.uuid);
+        verts += pos.count;
+      }
+      tris += (o.geometry.index ? o.geometry.index.count : pos.count) / 3;
     }
   });
   return { tris: Math.round(tris), verts };
@@ -432,6 +437,107 @@ $("browseOut").onclick = () => browse("folder", "outPath");
 $("normalDx").onchange = applyViewMode;
 $("viewMode").onchange = (e) => { viewMode = e.target.value; applyViewMode(); };
 
+// ------------------------------------------- panel materialow (per-materiał)
+const MAT_SLOTS = [
+  ["basecolor", "BaseCol"], ["normal", "Normal"], ["orm", "ORM"],
+  ["occlusion", "AO"], ["roughness", "Rough"], ["metallic", "Metal"],
+  ["gloss", "Gloss"], ["emissive", "Emis"], ["opacity", "Opac"],
+];
+
+function renderMaterials(mats) {
+  const list = $("materialsList");
+  list.innerHTML = "";
+  $("matCount").textContent = `(${mats.length})`;
+  $("materialsSection").style.display = "";
+  for (const m of mats) {
+    const row = document.createElement("div");
+    row.className = "mat-row";
+    const name = document.createElement("div");
+    name.className = "mat-name";
+    name.textContent = m.name;
+    name.title = m.name;
+    row.appendChild(name);
+    const slots = document.createElement("div");
+    slots.className = "mat-slots";
+    for (const [key, label] of MAT_SLOTS) {
+      const el = document.createElement("div");
+      el.className = "mslot";
+      el.dataset.material = m.name;
+      el.dataset.slot = key;
+      el.title = `${m.name} — ${label} (drag&drop PNG/JPG/WebP)`;
+      const cnv = document.createElement("canvas");
+      cnv.width = cnv.height = 34;
+      const g = cnv.getContext("2d");
+      g.fillStyle = "#101216"; g.fillRect(0, 0, 34, 34);
+      // mapa juz obecna w pliku (embedded / znaleziona z konwencji nazw)
+      if (m.maps && m.maps[key]) {
+        el.classList.add("filled");
+        g.fillStyle = "#3f7d4f"; g.font = "9px sans-serif";
+        g.fillText("plik", 8, 20);
+      }
+      const span = document.createElement("span");
+      span.textContent = label;
+      el.appendChild(cnv);
+      el.appendChild(span);
+      _wireMatSlot(el, cnv);
+      slots.appendChild(el);
+    }
+    row.appendChild(slots);
+    list.appendChild(row);
+  }
+}
+
+function _wireMatSlot(el, cnv) {
+  el.addEventListener("dragover", (e) => { e.preventDefault(); el.classList.add("dragover"); });
+  el.addEventListener("dragleave", () => el.classList.remove("dragover"));
+  el.addEventListener("drop", (e) => {
+    e.preventDefault();
+    el.classList.remove("dragover");
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    if (!/\.(png|jpe?g|webp|tga|bmp|tiff?)$/i.test(file.name)) {
+      logLine("WARN: nieobslugiwany format " + file.name, "warn");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const r = await fetch("/api/assign_texture", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          material: el.dataset.material, slot: el.dataset.slot,
+          filename: file.name, data: reader.result,
+        }),
+      }).then((r) => r.json()).catch((e) => ({ error: String(e) }));
+      if (r.error) { logLine("ERROR przypisanie mapy: " + r.error, "err"); return; }
+      el.classList.add("filled");
+      logLine(`INFO ${el.dataset.material}: ${el.dataset.slot} <- ${file.name}`);
+      // miniatura (tga/bmp moga sie nie zdekodowac w <img> — wtedy zostaje ramka)
+      const img = new Image();
+      img.onload = () => {
+        const g = cnv.getContext("2d");
+        g.drawImage(img, 0, 0, 34, 34);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ------------------------------------------------------------ wczytywanie
+$("loadBtn").onclick = async () => {
+  const payload = { input: $("inputPath").value.trim(), up: $("upAxis").value };
+  logEl.innerHTML = ""; lastLogLen = 0;
+  const r = await fetch("/api/load", {
+    method: "POST", body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+  }).then((r) => r.json());
+  if (r.error) { logLine("ERROR " + r.error, "err"); return; }
+  $("loadBtn").disabled = true;
+  $("processBtn").disabled = true;
+  polling = setInterval(poll, 400);
+};
+
 let polling = null;
 $("processBtn").onclick = async () => {
   const payload = {
@@ -447,6 +553,7 @@ $("processBtn").onclick = async () => {
     texFormat: $("texFormat").value,
     perLodFbx: $("perLodFbx").checked,
     embedTextures: $("embedTextures").checked,
+    up: $("upAxis").value,
   };
   logEl.innerHTML = ""; lastLogLen = 0;
   const r = await fetch("/api/process", {
@@ -455,6 +562,7 @@ $("processBtn").onclick = async () => {
   }).then((r) => r.json());
   if (r.error) { logLine("ERROR " + r.error, "err"); return; }
   $("processBtn").disabled = true;
+  $("loadBtn").disabled = true;
   polling = setInterval(poll, 400);
 };
 
@@ -471,7 +579,14 @@ async function poll() {
   if (!p.running && p.result) {
     clearInterval(polling); polling = null;
     $("processBtn").disabled = false;
-    if (p.result.ok && p.result.glb) {
+    $("loadBtn").disabled = false;
+    if (p.result.kind === "load" && p.result.ok) {
+      renderMaterials(p.result.materials || []);
+      if (p.result.up_detected === "z")
+        logLine("INFO orientacja zrodla: Z-up — skonwertowano do Y-up");
+      Object.keys(slotTextures).forEach((k) => (slotTextures[k] = null));
+      loadModel(p.result.preview + "?t=" + Date.now());
+    } else if (p.result.kind === "process" && p.result.ok && p.result.glb) {
       Object.keys(slotTextures).forEach((k) => (slotTextures[k] = null));
       loadModel("/out/" + encodeURIComponent(p.result.glb) + "?t=" + Date.now());
     }

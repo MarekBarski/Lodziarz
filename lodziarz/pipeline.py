@@ -28,6 +28,9 @@ class ProcessOptions:
     # (LOD0 zwykle zostaje na oryginalnych materialach — bake dla niego to wybor)
     baked_lods: list | None = None
     bake_backend: str = "texel"
+    up_axis: str = "auto"                # 'auto' | 'y' | 'z' — orientacja zrodla
+    # reczne przypisania map z GUI: {material: {slot: sciezka}}
+    material_textures: dict | None = None
     atlas_resolution: int = 1024
     dilation: int = 8
     ssaa: int = 2                        # antyaliasing bake: 1 (off) / 2 / 4
@@ -70,7 +73,10 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
     out_dir.mkdir(parents=True, exist_ok=True)
 
     log.progress(2, "import")
-    asset = load_asset(input_path, log)
+    asset = load_asset(input_path, log, force_up=opts.up_axis)
+    if opts.material_textures:
+        from .matmap import apply_manual_assignments
+        apply_manual_assignments(asset, opts.material_textures, log)
     result.asset_name = asset.name
     result.out_dir = str(out_dir)
 

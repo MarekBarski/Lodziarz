@@ -68,14 +68,18 @@ def _auto_thresholds(lod0: MeshData, count: int) -> list[float]:
 
 
 def _material_entries(chain: LodChain, texture_files: dict) -> list[dict]:
+    """Tekstury atlasu podpinamy tylko pod material baked; oryginalne
+    materialy ida z sama nazwa (ich tekstury zyja przy assecie zrodlowym)."""
+    baked_idx = chain.baked_material_index
     out = []
-    for m in chain.materials:
+    for i, m in enumerate(chain.materials):
+        is_baked = baked_idx is not None and i == baked_idx
         out.append({
             "name": m.name,
-            "basecolor": texture_files.get("basecolor", ""),
-            "normal": texture_files.get("normal", ""),
-            "orm": texture_files.get("orm", ""),
-            "emissive": texture_files.get("emissive", ""),
+            "basecolor": texture_files.get("basecolor", "") if is_baked else "",
+            "normal": texture_files.get("normal", "") if is_baked else "",
+            "orm": texture_files.get("orm", "") if is_baked else "",
+            "emissive": texture_files.get("emissive", "") if is_baked else "",
         })
     return out
 

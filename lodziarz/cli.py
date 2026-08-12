@@ -7,7 +7,8 @@ from pathlib import Path
 
 from .importer import SUPPORTED
 from .logutil import PipelineLog
-from .pipeline import ProcessOptions, process_asset
+from .pipeline import ProcessOptions
+from .worker import run_isolated
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +26,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="ratio trojkatow na LOD (default 0.5)")
     pr.add_argument("--no-bake", action="store_true",
                     help="bez scalania materialow / bake atlasu")
+    pr.add_argument("--bake-from-lod", type=int, default=0,
+                    help="LOD-y ponizej N zostaja z oryginalnymi materialami, "
+                         "N i wyzsze dostaja atlas (default 0 = wszystkie)")
     pr.add_argument("--backend", default="texel",
                     choices=["texel", "raycast", "cameras26"],
                     help="backend bake (default texel)")
@@ -68,6 +72,7 @@ def run_process(args) -> int:
         lod_count=max(1, args.lods),
         lod_ratio=min(0.95, max(0.05, args.ratio)),
         bake=not args.no_bake,
+        bake_from_lod=max(0, args.bake_from_lod),
         bake_backend=args.backend,
         atlas_resolution=min(4096, max(512, args.atlas)),
         dilation=max(0, args.dilation),
@@ -88,7 +93,8 @@ def run_process(args) -> int:
         log = PipelineLog(echo=True)
         log.info(f"=== {f.name} ===")
         out_dir = out_root / f.stem if len(files) > 1 else out_root
-        result = process_asset(f, out_dir, opts, log)
+        # subprocess per plik: crash natywny nie zabija calego batcha
+        result = run_isolated(f, out_dir, opts, log)
         if not result.ok:
             failed += 1
     if failed:

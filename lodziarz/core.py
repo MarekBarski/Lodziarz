@@ -82,10 +82,17 @@ class Asset:
 
 @dataclass
 class LodChain:
-    """LOD0..N — wszystkie dziela ten sam zestaw materialow (i atlas po bake)."""
+    """LOD0..N + wspolna lista materialow.
+
+    baked[i] mowi, czy LOD i uzywa atlasu (material baked_material_index),
+    czy oryginalnych materialow i UV. None = wszystkie tak samo
+    (baked_material_index rozstrzyga).
+    """
     asset_name: str
     lods: list[MeshData]
     materials: list[MaterialData]
+    baked: list[bool] | None = None
+    baked_material_index: int | None = None
 
 
 def weld_vertices(positions, normals, uvs, tri_material):

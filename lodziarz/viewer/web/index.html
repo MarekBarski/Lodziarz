@@ -44,6 +44,12 @@
       <h2>Bake</h2>
       <label class="chk"><input id="bake" type="checkbox" checked> scal materialy + bake atlasu</label>
       <div class="grid2">
+        <label title="LOD-y ponizej N zostaja z oryginalnymi materialami i UV; N i wyzsze dostaja atlas">
+          bake od LOD <input id="bakeFromLod" type="number" min="0" max="7" value="0">
+        </label>
+        <span></span>
+      </div>
+      <div class="grid2">
         <label>backend
           <select id="backend">
             <option value="texel" selected>texel-space</option>

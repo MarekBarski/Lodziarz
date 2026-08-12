@@ -412,6 +412,7 @@ $("processBtn").onclick = async () => {
     out: $("outPath").value.trim(),
     lods: +$("lods").value, ratio: +$("ratio").value,
     bake: $("bake").checked, backend: $("backend").value,
+    bakeFromLod: +$("bakeFromLod").value,
     atlas: +$("atlas").value, dilation: +$("dilation").value,
     ssaa: +$("ssaa").value,
     inputNormalDx: $("inputNormalDx").checked,

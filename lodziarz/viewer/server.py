@@ -15,7 +15,8 @@ from pathlib import Path
 
 from ..core import resource_dir
 from ..logutil import PipelineLog
-from ..pipeline import ProcessOptions, ProcessResult, process_asset
+from ..pipeline import ProcessOptions, ProcessResult
+from ..worker import run_isolated
 
 WEB_DIR = resource_dir() / "viewer" / "web"
 
@@ -137,6 +138,7 @@ class Handler(BaseHTTPRequestHandler):
                 lod_count=max(1, min(8, int(p.get("lods", 4)))),
                 lod_ratio=max(0.05, min(0.95, float(p.get("ratio", 0.5)))),
                 bake=bool(p.get("bake", True)),
+                bake_from_lod=max(0, min(7, int(p.get("bakeFromLod", 0)))),
                 bake_backend=str(p.get("backend", "texel")),
                 atlas_resolution=max(512, min(4096, int(p.get("atlas", 2048)))),
                 dilation=max(0, min(64, int(p.get("dilation", 8)))),
@@ -153,7 +155,8 @@ class Handler(BaseHTTPRequestHandler):
             STATE.out_root = out_dir
 
         def work():
-            result = process_asset(input_path, out_dir, opts, STATE.log)
+            # subprocess: crash natywny (ufbx/GL/FBX SDK) nie zabija GUI
+            result = run_isolated(input_path, out_dir, opts, STATE.log)
             with STATE.lock:
                 STATE.result = result
                 STATE.running = False

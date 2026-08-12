@@ -1,6 +1,15 @@
 # STATUS
 
-**Wersja:** 0.1.0 (2026-08-12) — pierwsza działająca całość
+**Wersja:** 0.2.0 (2026-08-12) — crash-safe worker + bake od LOD N
+
+## Nowe w 0.2.0
+- pipeline w osobnym procesie (`lodziarz/worker.py`): crash natywny (ufbx/GL/FBX SDK)
+  nie zabija GUI ani batcha; `lodziarz_crash.log` w folderze wyjściowym
+- **bake od LOD N**: LOD-y < N zostają z oryginalnymi materiałami i UV,
+  LOD-y ≥ N dostają atlas (GUI: "bake od LOD", CLI: `--bake-from-lod N`)
+- GLB: LOD-y bez bake mają primitives per materiał źródłowy
+- NIEROZWIĄZANE: model użytkownika crashował 0.1.0 — teraz błąd będzie
+  złapany i zalogowany; czekamy na retest i plik do debugowania
 
 ## Działa (zweryfikowane)
 - [x] import FBX/OBJ/glTF/GLB

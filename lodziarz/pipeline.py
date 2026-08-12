@@ -6,6 +6,8 @@ import traceback
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
+import numpy as np
+
 from .atlas import unwrap_atlas
 from .bake import BakeOptions, get_backend
 from .core import LodChain, MaterialData
@@ -22,6 +24,7 @@ class ProcessOptions:
     lod_count: int = 4
     lod_ratio: float = 0.5
     bake: bool = True
+    bake_from_lod: int = 0               # LOD-y < N zostaja z oryginalnymi materialami
     bake_backend: str = "texel"
     atlas_resolution: int = 2048
     dilation: int = 8
@@ -70,17 +73,23 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
 
     texture_files: dict = {}
     baked_images: dict = {}
-    mesh = asset.mesh
-    materials = asset.materials
+    count = opts.lod_count
 
-    if opts.bake:
+    bake = opts.bake
+    bake_from = max(0, int(opts.bake_from_lod))
+    if bake and bake_from >= count:
+        log.warn(f"bake od LOD {bake_from} >= liczba LOD-ow ({count}) "
+                 f"— zaden LOD nie dostanie atlasu, bake pominiety")
+        bake = False
+
+    if bake:
         log.progress(15, "unwrap UV (xatlas)")
-        mesh, old_uvs = unwrap_atlas(mesh, opts.atlas_resolution,
-                                     max(2, opts.dilation // 2), log)
+        baked_mesh, old_uvs = unwrap_atlas(asset.mesh, opts.atlas_resolution,
+                                           max(2, opts.dilation // 2), log)
         log.progress(35, f"bake ({opts.bake_backend})")
         backend = get_backend(opts.bake_backend)
         bake_res = backend.bake(
-            mesh, old_uvs, materials,
+            baked_mesh, old_uvs, asset.materials,
             BakeOptions(resolution=opts.atlas_resolution,
                         dilation=opts.dilation,
                         ssaa=opts.ssaa,
@@ -92,16 +101,44 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
             baked_images, asset.name, out_dir, opts.texture_format,
             normal_directx=opts.output_normal_directx, log=log)
         save_debug(bake_res, asset.name, out_dir, log)
-        # po scaleniu: jeden material
-        materials = [MaterialData(name=f"M_{asset.name}")]
-        mesh.tri_material[:] = 0
+
+        log.progress(60, f"LOD-y ({count}, ratio {opts.lod_ratio})")
+        if bake_from == 0:
+            # wszystkie LOD-y na atlasie — jeden material
+            materials = [MaterialData(name=f"M_{asset.name}")]
+            baked_mesh.tri_material[:] = 0
+            lods = build_lod_chain(baked_mesh, count=count,
+                                   ratio=opts.lod_ratio, log=log)
+            chain = LodChain(asset_name=asset.name, lods=lods,
+                             materials=materials,
+                             baked=[True] * count, baked_material_index=0)
+        else:
+            # mixed: LOD0..bake_from-1 oryginalne materialy/UV, reszta atlas
+            log.info(f"LOD0..LOD{bake_from - 1}: oryginalne materialy; "
+                     f"LOD{bake_from}+: atlas")
+            materials = list(asset.materials) + [MaterialData(name=f"M_{asset.name}")]
+            baked_idx = len(asset.materials)
+            orig_lods = build_lod_chain(asset.mesh, count=bake_from,
+                                        ratio=opts.lod_ratio, log=log)
+            baked_lods = build_lod_chain(baked_mesh, count=count,
+                                         ratio=opts.lod_ratio, log=log)
+            for m in baked_lods:
+                m.tri_material = np.full(len(m.indices), baked_idx,
+                                         dtype=np.int32)
+            lods = orig_lods[:bake_from] + baked_lods[bake_from:]
+            chain = LodChain(asset_name=asset.name, lods=lods,
+                             materials=materials,
+                             baked=[False] * bake_from
+                                   + [True] * (count - bake_from),
+                             baked_material_index=baked_idx)
     else:
         log.info("bake wylaczony — zachowuje oryginalne materialy i UV")
-
-    log.progress(60, f"LOD-y ({opts.lod_count}, ratio {opts.lod_ratio})")
-    lods = build_lod_chain(mesh, count=opts.lod_count,
-                           ratio=opts.lod_ratio, log=log)
-    chain = LodChain(asset_name=asset.name, lods=lods, materials=materials)
+        log.progress(60, f"LOD-y ({count}, ratio {opts.lod_ratio})")
+        lods = build_lod_chain(asset.mesh, count=count,
+                               ratio=opts.lod_ratio, log=log)
+        chain = LodChain(asset_name=asset.name, lods=lods,
+                         materials=asset.materials,
+                         baked=[False] * count, baked_material_index=None)
     result.lod_stats = [{"tris": int(m.triangle_count),
                          "verts": int(m.vertex_count)} for m in lods]
 

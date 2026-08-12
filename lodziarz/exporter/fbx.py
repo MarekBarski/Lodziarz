@@ -45,11 +45,15 @@ def _write_lzmesh(path: Path, name: str, lods: list[MeshData],
             f.write(np.ascontiguousarray(mesh.tri_material, dtype=np.int32).tobytes())
 
 
-def _run_writer(lzmesh: Path, out_fbx: Path, log: PipelineLog) -> None:
+def _run_writer(lzmesh: Path, out_fbx: Path, log: PipelineLog,
+                embed: bool = False) -> None:
     exe = bin_dir() / "fbx_writer.exe"
     if not exe.exists():
         raise FileNotFoundError(f"brak {exe} — zbuduj native/build_native.ps1")
-    proc = subprocess.run([str(exe), str(lzmesh), str(out_fbx)],
+    cmd = [str(exe), str(lzmesh), str(out_fbx)]
+    if embed:
+        cmd.append("--embed")
+    proc = subprocess.run(cmd,
                           capture_output=True, text=True, timeout=600,
                           creationflags=subprocess.CREATE_NO_WINDOW)
     if proc.returncode != 0:
@@ -84,23 +88,41 @@ def _material_entries(chain: LodChain, texture_files: dict) -> list[dict]:
     return out
 
 
+def _absolutize(mats: list[dict], out_dir: Path) -> list[dict]:
+    """Przy embedowaniu SDK musi znalezc pliki tekstur — pelne sciezki."""
+    out = []
+    for m in mats:
+        m = dict(m)
+        for key in ("basecolor", "normal", "orm", "emissive"):
+            if m.get(key):
+                m[key] = str((out_dir / m[key]).resolve())
+        out.append(m)
+    return out
+
+
 def export_fbx_lodgroup(chain: LodChain, out_path: Path,
-                        texture_files: dict, log: PipelineLog) -> Path:
+                        texture_files: dict, log: PipelineLog,
+                        embed: bool = False) -> Path:
     """One-pass: node LODGroup <Nazwa>, dzieci <Nazwa>_LOD0..N — UE importuje
     calosc jednym plikiem z Import Mesh LODs."""
     mats = _material_entries(chain, texture_files)
+    if embed:
+        mats = _absolutize(mats, out_path.parent)
     thresholds = _auto_thresholds(chain.lods[0], len(chain.lods))
     with tempfile.TemporaryDirectory(prefix="lodziarz_") as td:
         lz = Path(td) / "asset.lzmesh"
         _write_lzmesh(lz, chain.asset_name, chain.lods, mats, thresholds)
-        _run_writer(lz, out_path, log)
+        _run_writer(lz, out_path, log, embed=embed)
     return out_path
 
 
 def export_fbx_per_lod(chain: LodChain, out_dir: Path,
-                       texture_files: dict, log: PipelineLog) -> list[Path]:
+                       texture_files: dict, log: PipelineLog,
+                       embed: bool = False) -> list[Path]:
     """Tryb alternatywny: SM_<Nazwa>_LOD0.fbx, SM_<Nazwa>_LOD1.fbx..."""
     mats = _material_entries(chain, texture_files)
+    if embed:
+        mats = _absolutize(mats, out_dir)
     base = chain.asset_name
     if not base.startswith("SM_"):
         base = f"SM_{base}"
@@ -111,6 +133,6 @@ def export_fbx_per_lod(chain: LodChain, out_dir: Path,
             lz = Path(td) / f"{name}.lzmesh"
             _write_lzmesh(lz, name, [mesh], mats, [])
             out = out_dir / f"{name}.fbx"
-            _run_writer(lz, out, log)
+            _run_writer(lz, out, log, embed=embed)
             paths.append(out)
     return paths

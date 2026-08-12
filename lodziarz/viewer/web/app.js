@@ -446,6 +446,7 @@ $("processBtn").onclick = async () => {
     outputNormalDx: $("outputNormalDx").checked,
     texFormat: $("texFormat").value,
     perLodFbx: $("perLodFbx").checked,
+    embedTextures: $("embedTextures").checked,
   };
   logEl.innerHTML = ""; lastLogLen = 0;
   const r = await fetch("/api/process", {

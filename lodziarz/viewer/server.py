@@ -148,6 +148,7 @@ class Handler(BaseHTTPRequestHandler):
                 output_normal_directx=bool(p.get("outputNormalDx", False)),
                 texture_format=str(p.get("texFormat", "png")),
                 fbx_per_lod=bool(p.get("perLodFbx", False)),
+                fbx_embed_textures=bool(p.get("embedTextures", False)),
                 export_glb=True,  # viewer potrzebuje GLB
             )
             STATE.running = True

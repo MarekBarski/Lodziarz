@@ -10,8 +10,22 @@
   z oryginalnymi materiałami, LOD1+ atlas
 - GLB: LOD-y bez bake mają primitives per materiał źródłowy
 - default atlasu: 1024 (było 2048)
-- NIEROZWIĄZANE: model użytkownika crashował 0.1.0 — teraz błąd będzie
-  złapany i zalogowany; czekamy na retest i plik do debugowania
+
+## Nowe w 0.3.0
+- **crash rozwiązany u źródła**: import FBX w dedykowanym podprocesie
+  (`fbx_import_proc.py`) — ufbx psuje stertę procesu (AV przy GC / lazy
+  importach / free()); podproces wysyła Asset przez Queue i kończy
+  `os._exit(0)` bez teardownu. Testowane na 3 assetach UE użytkownika
+  (do 2M tri, 25 materiałów) — wszystkie przechodzą
+- **mapy per materiał z zewnątrz** (`matmap.py`): FBX z UE nie ma tekstur —
+  sidecar `<plik>.textures.json` (per materiał: basecolor/normal/orm albo
+  occlusion/roughness/metallic/gloss osobno, emissive, opacity; `*` fallback)
+  + auto-dopasowanie po konwencji `<Materiał>_BaseColor.png` obok pliku
+  lub w `textures/`; czytelny warning gdy materiał zostaje bez map
+- **embedded tekstury FBX**: import działa (zweryfikowany roundtripem),
+  export nowym checkboxem "wbuduj tekstury do FBX" / `--embed-textures`
+- jednomateriałowy FBX → same LOD-y: `--no-bake`, materiał + tekstury
+  przechodzą do wyjścia (FBX i GLB)
 
 ## Działa (zweryfikowane)
 - [x] import FBX/OBJ/glTF/GLB

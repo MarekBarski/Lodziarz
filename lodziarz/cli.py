@@ -45,6 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="wejsciowe normalki sa DirectX")
     pr.add_argument("--per-lod-fbx", action="store_true",
                     help="dodatkowo kazdy LOD osobnym plikiem SM_*_LODn.fbx")
+    pr.add_argument("--embed-textures", action="store_true",
+                    help="wbuduj tekstury do pliku FBX")
     pr.add_argument("--no-glb", action="store_true", help="bez exportu GLB")
 
     g = sub.add_parser("gui", help="uruchom GUI z viewerem (default)")
@@ -98,6 +100,7 @@ def run_process(args) -> int:
         output_normal_directx=args.normal_dx,
         texture_format="tga" if args.tga else "png",
         fbx_per_lod=args.per_lod_fbx,
+        fbx_embed_textures=args.embed_textures,
         export_glb=not args.no_glb,
     )
     files = _collect_inputs(args.input)

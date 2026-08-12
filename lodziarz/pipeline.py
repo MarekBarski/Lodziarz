@@ -35,6 +35,7 @@ class ProcessOptions:
     output_normal_directx: bool = False  # zapis normalki jako DX
     texture_format: str = "png"          # png | tga
     fbx_per_lod: bool = False            # dodatkowo osobne pliki SM_*_LODn.fbx
+    fbx_embed_textures: bool = False     # tekstury wbudowane w FBX
     export_glb: bool = True
 
 
@@ -144,12 +145,14 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
 
     log.progress(75, "export FBX")
     fbx_path = out_dir / f"{asset.name}.fbx"
-    export_fbx_lodgroup(chain, fbx_path, texture_files, log)
+    export_fbx_lodgroup(chain, fbx_path, texture_files, log,
+                        embed=opts.fbx_embed_textures)
     result.fbx = fbx_path.name
 
     if opts.fbx_per_lod:
         log.progress(82, "export FBX per LOD")
-        paths = export_fbx_per_lod(chain, out_dir, texture_files, log)
+        paths = export_fbx_per_lod(chain, out_dir, texture_files, log,
+                                   embed=opts.fbx_embed_textures)
         result.fbx_per_lod = [p.name for p in paths]
 
     if opts.export_glb:

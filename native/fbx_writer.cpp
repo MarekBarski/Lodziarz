@@ -3,7 +3,8 @@
 // Autodesk FBX SDK, FbxLODGroup z progami w cm, FbxSystemUnit::cm,
 // natywny (binarny) writer.
 //
-// Uzycie: fbx_writer.exe <input.lzmesh> <output.fbx>
+// Uzycie: fbx_writer.exe <input.lzmesh> <output.fbx> [--embed]
+//   --embed: tekstury wbudowane w plik FBX (EXP_FBX_EMBEDDED)
 //
 // Format LZMESH v1 (little-endian):
 //   char[8]  magic = "LZMESH1\0"
@@ -174,8 +175,11 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    bool embed = argc > 3 && std::string(argv[3]) == "--embed";
+
     FbxManager* mgr = FbxManager::Create();
     FbxIOSettings* ios = FbxIOSettings::Create(mgr, IOSROOT);
+    ios->SetBoolProp(EXP_FBX_EMBEDDED, embed);
     mgr->SetIOSettings(ios);
     FbxScene* scene = FbxScene::Create(mgr, "lodziarz");
     FbxSystemUnit::cm.ConvertScene(scene);

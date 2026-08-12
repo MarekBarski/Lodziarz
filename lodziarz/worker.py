@@ -52,9 +52,10 @@ def run_isolated(input_path: str | Path, out_dir: str | Path,
     """Odpala process_asset w subprocesie; log/progress przechodza do `log`."""
     ctx = mp.get_context("spawn")
     q = ctx.Queue()
+    # daemon=False: worker sam spawnuje podproces importu FBX
     proc = ctx.Process(target=_worker_main,
                        args=(q, str(input_path), str(out_dir), asdict(opts)),
-                       daemon=True)
+                       daemon=False)
     proc.start()
     result_dict = None
     while True:

@@ -8,8 +8,14 @@ from PIL import Image
 
 from .core import Asset, MaterialData, MeshData, compute_smooth_normals, weld_vertices
 from .logutil import PipelineLog
+# UWAGA: matmap (i jego PIL.ImageOps) MUSI byc zaimportowany przed praca
+# ufbx — lazy import C-extension po sesji ufbx potrafi rzucic AV
+from .matmap import apply_texture_overrides
 
 SUPPORTED = {".fbx", ".obj", ".gltf", ".glb"}
+
+# sceny ufbx trzymane do konca procesu — patrz komentarz w _load_fbx
+_SCENE_KEEPALIVE: list = []
 
 
 def load_asset(path: str | Path, log: PipelineLog) -> Asset:
@@ -21,14 +27,28 @@ def load_asset(path: str | Path, log: PipelineLog) -> Asset:
         raise ValueError(f"nieobslugiwany format '{ext}' (FBX/OBJ/glTF/GLB)")
     log.info(f"import: {p.name}")
     if ext == ".fbx":
-        asset = _load_fbx(p, log)
+        # ufbx w dedykowanym podprocesie — patrz fbx_import_proc.py
+        from .fbx_import_proc import load_fbx_isolated
+        asset = load_fbx_isolated(p, log)
     else:
         asset = _load_trimesh(p, log)
     asset.mesh.validate()
     if asset.mesh.triangle_count == 0:
         raise ValueError("zaimportowano 0 trojkatow — plik pusty albo sama hierarchia")
+
+    # zewnetrzne mapy: sidecar JSON + konwencja nazw (FBX z UE nie ma tekstur)
+    apply_texture_overrides(asset, p, log)
+
     log.info(f"zaimportowano: {asset.mesh.triangle_count} tri, "
              f"{asset.mesh.vertex_count} verts, {len(asset.materials)} materialow")
+    missing = [m.name for m in asset.materials
+               if m.base_color_tex is None and m.name != "__default__"]
+    if missing:
+        log.warn(f"materialy bez tekstur (bake da plaski kolor): "
+                 f"{', '.join(missing[:10])}"
+                 + (f" +{len(missing) - 10} innych" if len(missing) > 10 else ""))
+        log.warn("podepnij mapy przez <plik>.textures.json albo nazwij pliki "
+                 "<Material>_BaseColor.png itd. obok pliku / w textures/")
     return asset
 
 
@@ -91,16 +111,13 @@ def _load_fbx(path: Path, log: PipelineLog) -> Asset:
     if skipped_lod:
         log.info(f"pominieto {skipped_lod} nizszych LOD-ow ze zrodlowego LODGroup")
 
-    # jawne zwolnienie sceny PO zrzuceniu wrapperow — destruktor wywolany
-    # przez GC na scenie z zyjacymi wrapperami crashuje (ufbx 0.0.5)
+    # ufbx 0.0.5: i destruktor sceny (GC), i scene.free() potrafia rzucic
+    # access violation na plikach z teksturami/wieloma materialami.
+    # Nie zwalniamy WCALE — scena zyje do konca procesu. Pipeline i tak
+    # chodzi w osobnym procesie per job (worker.py), wiec pamiec wraca
+    # do systemu po zakonczeniu, a crash przy teardown nie gubi wyniku.
     collected.clear()
-    try:
-        del node, mesh
-    except NameError:
-        pass
-    import gc
-    gc.collect()
-    scene.free()
+    _SCENE_KEEPALIVE.append(scene)
 
     if not all_pos:
         raise ValueError("plik FBX nie zawiera geometrii")

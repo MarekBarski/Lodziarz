@@ -1,0 +1,17 @@
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# build artefakty
+build/
+dist/
+native/build/
+*.spec.bak
+
+# wyniki testow / tymczasowe
+testout/
+.playwright-mcp/
+
+# archiwa third-party (rozpakowane zrodla zostaja w repo)
+third_party/*.zip

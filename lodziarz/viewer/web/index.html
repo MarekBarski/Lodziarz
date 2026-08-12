@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Lodziarz — LOD + Bake + Viewer</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:,">
+<script type="importmap">
+{ "imports": {
+    "three": "./vendor/three.module.min.js",
+    "three/addons/controls/OrbitControls.js": "./vendor/controls/OrbitControls.js",
+    "three/addons/loaders/GLTFLoader.js": "./vendor/loaders/GLTFLoader.js",
+    "three/addons/environments/RoomEnvironment.js": "./vendor/environments/RoomEnvironment.js",
+    "three/addons/utils/BufferGeometryUtils.js": "./vendor/utils/BufferGeometryUtils.js"
+} }
+</script>
+</head>
+<body>
+<div id="layout">
+  <aside id="panel">
+    <h1>Lodziarz</h1>
+
+    <section>
+      <h2>Wejscie</h2>
+      <div class="row">
+        <input id="inputPath" type="text" placeholder="plik FBX / OBJ / glTF / GLB">
+        <button id="browseInput" title="wybierz plik">…</button>
+      </div>
+      <div class="row">
+        <input id="outPath" type="text" placeholder="folder wyjsciowy">
+        <button id="browseOut" title="wybierz folder">…</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>LOD-y</h2>
+      <div class="grid2">
+        <label>liczba <input id="lods" type="number" min="1" max="8" value="4"></label>
+        <label>ratio <input id="ratio" type="number" min="0.05" max="0.95" step="0.05" value="0.5"></label>
+      </div>
+    </section>
+
+    <section>
+      <h2>Bake</h2>
+      <label class="chk"><input id="bake" type="checkbox" checked> scal materialy + bake atlasu</label>
+      <div class="grid2">
+        <label>backend
+          <select id="backend">
+            <option value="texel" selected>texel-space</option>
+            <option value="raycast">raycast-cage (TODO)</option>
+            <option value="cameras26">26-camera (TODO)</option>
+          </select>
+        </label>
+        <label>atlas
+          <select id="atlas">
+            <option>512</option><option>1024</option>
+            <option selected>2048</option><option>4096</option>
+          </select>
+        </label>
+        <label>dilation px <input id="dilation" type="number" min="0" max="64" value="8"></label>
+        <label>antyaliasing
+          <select id="ssaa">
+            <option value="1">off</option>
+            <option value="2" selected>2&times;</option>
+            <option value="4">4&times;</option>
+          </select>
+        </label>
+      </div>
+      <label class="chk"><input id="inputNormalDx" type="checkbox"> wejsciowe normalki DirectX</label>
+      <label class="chk"><input id="outputNormalDx" type="checkbox"> zapis normalki DirectX</label>
+      <div class="grid2">
+        <label>tekstury
+          <select id="texFormat"><option selected>png</option><option>tga</option></select>
+        </label>
+        <label class="chk" style="align-self:end"><input id="perLodFbx" type="checkbox"> FBX per LOD</label>
+      </div>
+    </section>
+
+    <section>
+      <button id="processBtn" class="primary">Process</button>
+      <div id="progressWrap"><div id="progressBar"></div></div>
+      <div id="stage"></div>
+      <pre id="log"></pre>
+    </section>
+  </aside>
+
+  <main id="viewport">
+    <canvas id="canvas"></canvas>
+
+    <div id="hud">
+      <div id="lodBar" class="hudbox"></div>
+      <div id="stats" class="hudbox">tri: — &nbsp; verts: —</div>
+    </div>
+
+    <div id="viewBar" class="hudbox">
+      <select id="viewMode">
+        <option value="lit" selected>Lit</option>
+        <option value="wire">Wireframe</option>
+        <option value="basecolor">BaseColor</option>
+        <option value="normal">Normal</option>
+        <option value="ao">AO</option>
+        <option value="rough">Roughness</option>
+        <option value="metal">Metallic</option>
+        <option value="opacity">Opacity</option>
+        <option value="checker">UV checker (po bake)</option>
+        <option value="checker2">UV checker (oryginalne)</option>
+        <option value="uvflat">UV flat (po bake)</option>
+        <option value="uvflat2">UV flat (oryginalne)</option>
+      </select>
+      <label class="chk" title="konwencja normal mapy w podgladzie">
+        <input id="normalDx" type="checkbox"> normal: DirectX
+      </label>
+    </div>
+
+    <div id="maps" class="hudbox">
+      <div class="slotrow">
+        <div class="slot" data-slot="basecolor"><span>BaseColor</span><canvas width="64" height="64"></canvas></div>
+        <div class="slot" data-slot="normal"><span>Normal</span><canvas width="64" height="64"></canvas></div>
+        <div class="slot" data-slot="orm"><span>ORM pack</span><canvas width="64" height="64"></canvas></div>
+        <div class="slot" data-slot="emissive"><span>Emissive</span><canvas width="64" height="64"></canvas></div>
+        <div class="slot" data-slot="opacity"><span>Opacity</span><canvas width="64" height="64"></canvas></div>
+      </div>
+      <div class="slotrow">
+        <div class="slot" data-slot="ao"><span>AO</span><canvas width="48" height="48"></canvas></div>
+        <div class="slot" data-slot="rough"><span>Roughness</span><canvas width="48" height="48"></canvas></div>
+        <div class="slot" data-slot="metal"><span>Metallic</span><canvas width="48" height="48"></canvas></div>
+        <div class="slot" data-slot="gloss"><span>Glossiness</span><canvas width="48" height="48"></canvas></div>
+        <div class="hint">packed ORM albo mapy osobno; gloss = odwrocony rough. drag&amp;drop PNG/JPG</div>
+      </div>
+    </div>
+  </main>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

@@ -38,6 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="padding wysp w px (default 8)")
     pr.add_argument("--ssaa", type=int, default=2, choices=[1, 2, 4],
                     help="antyaliasing bake: 1=off, 2, 4 (default 2)")
+    pr.add_argument("--cage-offset", type=float, default=0.0,
+                    help="raycast: inflacja cage w metrach (0 = auto 1%% diag)")
     pr.add_argument("--tga", action="store_true", help="tekstury TGA zamiast PNG")
     pr.add_argument("--normal-dx", action="store_true",
                     help="zapisz normal mape w konwencji DirectX (flip G)")
@@ -99,6 +101,7 @@ def run_process(args) -> int:
         atlas_resolution=min(4096, max(512, args.atlas)),
         dilation=max(0, args.dilation),
         ssaa=args.ssaa,
+        cage_offset=max(0.0, args.cage_offset),
         input_normal_directx=args.input_normal_dx,
         output_normal_directx=args.normal_dx,
         texture_format="tga" if args.tga else "png",

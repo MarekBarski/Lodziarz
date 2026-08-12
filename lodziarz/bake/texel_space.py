@@ -7,9 +7,11 @@ nowy tangent space (tangenty liczone dla obu zestawow UV).
 from __future__ import annotations
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from . import BakeBackend, BakeOptions, BakeResult
+from .common import (dilate, downsample_weighted, draw_uv_layout,
+                     material_gl_textures)
 from ..core import MaterialData, MeshData, compute_tangents
 from ..logutil import PipelineLog
 
@@ -139,7 +141,7 @@ class TexelSpaceBackend(BakeBackend):
                   "in_new_uv", "in_old_uv", "in_normal",
                   "in_old_tan", "in_new_tan")],
                 index_buffer=ibo, index_element_size=4)
-            texs = _material_gl_textures(ctx, mat)
+            texs = material_gl_textures(ctx, mat)
             for slot, t in enumerate(texs):
                 t.use(slot)
             vao.render(moderngl.TRIANGLES)
@@ -161,7 +163,7 @@ class TexelSpaceBackend(BakeBackend):
         coverage = raw[0][:, :, 3] > 0
 
         if rres != res:
-            raw = [_downsample(r, coverage, rres // res) for r in raw]
+            raw = [downsample_weighted(r, coverage, rres // res) for r in raw]
             coverage = raw[0][:, :, 3] > 0
 
         log.info(f"pokrycie atlasu: {coverage.mean() * 100:.1f}% texeli")
@@ -172,151 +174,12 @@ class TexelSpaceBackend(BakeBackend):
                 continue
             if name == "opacity" and not any_opacity:
                 continue
-            img = _dilate(raw[i][:, :, :3], coverage, opts.dilation)
+            img = dilate(raw[i][:, :, :3], coverage, opts.dilation)
             if name == "opacity":
                 images[name] = Image.fromarray(img[:, :, 0], "L")
             else:
                 images[name] = Image.fromarray(img, "RGB")
 
         cov_img = Image.fromarray((coverage * 255).astype(np.uint8), "L")
-        uv_img = _draw_uv_layout(mesh, res)
+        uv_img = draw_uv_layout(mesh, res)
         return BakeResult(images=images, coverage=cov_img, uv_layout=uv_img)
-
-
-def _compose_constant(rgba: tuple, size: int = 4) -> np.ndarray:
-    arr = np.zeros((size, size, 4), dtype=np.uint8)
-    arr[:, :] = [int(np.clip(c, 0, 1) * 255 + 0.5) for c in rgba]
-    return arr
-
-
-def _srgb(x: float) -> float:
-    return float(np.clip(x, 0.0, 1.0) ** (1.0 / 2.2))
-
-
-def _material_gl_textures(ctx, mat: MaterialData) -> list:
-    """Komponuje 4 tekstury materialu (CPU) i laduje na GPU.
-
-    basecolor = tex * factor; orm = O(tex R) / R(tex G lub gray * factor) /
-    M(tex B lub gray * factor); normal = tex albo flat; emissive = tex albo factor.
-    """
-    f = mat.base_color_factor
-    if mat.base_color_tex is not None:
-        bc = np.asarray(mat.base_color_tex.convert("RGBA"), dtype=np.float32)
-        bc[:, :, :3] *= [f[0], f[1], f[2]]
-        bc = np.clip(bc, 0, 255).astype(np.uint8)
-    else:
-        bc = _compose_constant((_srgb(f[0]), _srgb(f[1]), _srgb(f[2]), 1.0))
-
-    if mat.normal_tex is not None:
-        nm = np.asarray(mat.normal_tex.convert("RGBA"), dtype=np.uint8)
-    else:
-        nm = _compose_constant((0.5, 0.5, 1.0, 1.0))
-
-    orm = _compose_orm(mat)
-
-    if mat.emissive_tex is not None:
-        em = np.asarray(mat.emissive_tex.convert("RGBA"), dtype=np.uint8)
-    else:
-        e = mat.emissive_factor
-        em = _compose_constant((_srgb(e[0]), _srgb(e[1]), _srgb(e[2]), 1.0))
-
-    if mat.opacity_tex is not None:
-        op = np.asarray(mat.opacity_tex.convert("RGBA"), dtype=np.float32)
-        op[:, :, :3] *= np.clip(mat.opacity_factor, 0.0, 1.0)
-        op = np.clip(op, 0, 255).astype(np.uint8)
-    else:
-        f = np.clip(mat.opacity_factor, 0.0, 1.0)
-        op = _compose_constant((f, f, f, 1.0))
-
-    out = []
-    for arr in (bc, nm, orm, em, op):
-        # GL: wiersz 0 na dole — obrazy PIL sa top-down
-        arr = np.ascontiguousarray(np.flipud(arr))
-        t = ctx.texture((arr.shape[1], arr.shape[0]), 4, arr.tobytes())
-        t.build_mipmaps()
-        t.repeat_x = t.repeat_y = True
-        out.append(t)
-    return out
-
-
-def _channel(img: Image.Image | None, ch: int, size: tuple) -> np.ndarray | None:
-    if img is None:
-        return None
-    a = np.asarray(img.convert("RGBA").resize(size, Image.BILINEAR),
-                   dtype=np.float32)
-    return a[:, :, ch] / 255.0
-
-
-def _compose_orm(mat: MaterialData) -> np.ndarray:
-    sizes = [t.size for t in (mat.occlusion_tex, mat.roughness_tex,
-                              mat.metallic_tex) if t is not None]
-    if not sizes:
-        return _compose_constant((1.0, mat.roughness_factor,
-                                  mat.metallic_factor, 1.0))
-    size = (max(s[0] for s in sizes), max(s[1] for s in sizes))
-    h, w = size[1], size[0]
-
-    packed_mr = mat.roughness_tex is not None and mat.roughness_tex is mat.metallic_tex
-    occ = _channel(mat.occlusion_tex, 0, size)
-    if packed_mr:
-        rough = _channel(mat.roughness_tex, 1, size)
-        metal = _channel(mat.metallic_tex, 2, size)
-    else:
-        rough = _channel(mat.roughness_tex, 0, size)   # standalone gray
-        metal = _channel(mat.metallic_tex, 0, size)
-    orm = np.zeros((h, w, 4), dtype=np.float32)
-    orm[:, :, 0] = occ if occ is not None else 1.0
-    orm[:, :, 1] = (rough if rough is not None else 1.0) * mat.roughness_factor
-    orm[:, :, 2] = (metal if metal is not None else 1.0) * mat.metallic_factor
-    orm[:, :, 3] = 1.0
-    return (np.clip(orm, 0, 1) * 255 + 0.5).astype(np.uint8)
-
-
-def _downsample(arr: np.ndarray, coverage: np.ndarray, factor: int) -> np.ndarray:
-    """Box filter wazony pokryciem — puste texele nie sciemniaja brzegow wysp."""
-    h, w, _ = arr.shape
-    a = arr.astype(np.float32).reshape(h // factor, factor,
-                                       w // factor, factor, 4)
-    cov = coverage.astype(np.float32).reshape(h // factor, factor,
-                                              w // factor, factor)
-    wsum = cov.sum(axis=(1, 3))
-    weighted = (a * cov[:, :, :, :, None]).sum(axis=(1, 3))
-    out = np.zeros_like(weighted)
-    mask = wsum > 0
-    out[mask] = weighted[mask] / wsum[mask][:, None]
-    out[:, :, 3] = np.where(mask, 255.0, 0.0)
-    return (out + 0.5).astype(np.uint8)
-
-
-def _dilate(rgb: np.ndarray, coverage: np.ndarray, iterations: int) -> np.ndarray:
-    """Iteracyjne rozlewanie brzegow wysp na puste texele (padding)."""
-    img = rgb.astype(np.float32)
-    valid = coverage.copy()
-    shifts = [(-1, -1), (-1, 0), (-1, 1), (0, -1),
-              (0, 1), (1, -1), (1, 0), (1, 1)]
-    for _ in range(max(0, iterations)):
-        if valid.all():
-            break
-        acc = np.zeros_like(img)
-        cnt = np.zeros(valid.shape, dtype=np.float32)
-        for dy, dx in shifts:
-            v = np.roll(valid, (dy, dx), axis=(0, 1))
-            p = np.roll(img, (dy, dx), axis=(0, 1))
-            acc += p * v[:, :, None]
-            cnt += v
-        fill = (~valid) & (cnt > 0)
-        img[fill] = acc[fill] / cnt[fill][:, None]
-        valid = valid | fill
-    return (img + 0.5).astype(np.uint8)
-
-
-def _draw_uv_layout(mesh: MeshData, res: int) -> Image.Image:
-    img = Image.new("RGB", (res, res), (12, 12, 12))
-    d = ImageDraw.Draw(img)
-    uv = mesh.uvs
-    px = np.stack([uv[:, 0] * (res - 1), (1.0 - uv[:, 1]) * (res - 1)], axis=1)
-    for tri in mesh.indices:
-        a, b, c = px[tri[0]], px[tri[1]], px[tri[2]]
-        d.line([tuple(a), tuple(b), tuple(c), tuple(a)],
-               fill=(0, 200, 90), width=1)
-    return img

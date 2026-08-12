@@ -1,11 +1,12 @@
 """Baker — wymienne strategie (BakeBackend).
 
 Dostepne backendy:
-  texel      — pelna implementacja: rasteryzacja nowego UV, sampling starych
-               tekstur w texel space (moderngl, offscreen GPU)
-  raycast    — STUB (TODO): bake przez raycast z cage'a, dla roznej geometrii
-               zrodlo/cel (high->low poly)
-  cameras26  — STUB (TODO): projekcja z 26 kamer wokol obiektu, debug/eksperymenty
+  texel      — default: rasteryzacja nowego UV, sampling starych tekstur
+               w texel space (moderngl, offscreen GPU); najszybszy
+  raycast    — raycast z cage'a (inflacja wzdluz normali + BVH); CPU,
+               wolniejszy; przydatny przy nachodzacych shellach
+  cameras26  — projekcja z 26 kamer ortho wokol obiektu z testem widocznosci
+               po depth; do debugowania artefaktow bake'u
 """
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ class BakeOptions:
     dilation: int = 8               # px marginesu wysp
     ssaa: int = 2                   # supersampling rasteryzacji
     input_normal_flip_g: bool = False  # True gdy wejsciowe normalki sa DirectX
+    cage_offset: float = 0.0        # raycast: inflacja cage'a w m (0 = auto 1% diag)
 
 
 @dataclass

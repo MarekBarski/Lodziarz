@@ -34,6 +34,7 @@ class ProcessOptions:
     atlas_resolution: int = 1024
     dilation: int = 8
     ssaa: int = 2                        # antyaliasing bake: 1 (off) / 2 / 4
+    cage_offset: float = 0.0             # raycast: inflacja cage w m (0 = auto)
     input_normal_directx: bool = False   # wejsciowe normalki DX (flip G przy bake)
     output_normal_directx: bool = False  # zapis normalki jako DX
     texture_format: str = "png"          # png | tga
@@ -111,6 +112,7 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
             BakeOptions(resolution=opts.atlas_resolution,
                         dilation=opts.dilation,
                         ssaa=opts.ssaa,
+                        cage_offset=opts.cage_offset,
                         input_normal_flip_g=opts.input_normal_directx),
             log)
         baked_images = bake_res.images

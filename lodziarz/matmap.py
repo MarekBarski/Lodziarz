@@ -36,7 +36,7 @@ from .logutil import PipelineLog
 SUFFIXES = {
     "basecolor": ["basecolor", "albedo", "bc", "d", "diffuse", "base_color"],
     "normal": ["normal", "n", "nrm"],
-    "orm": ["orm"],
+    "orm": ["orm", "occlusionroughnessmetallic", "arm"],
     "occlusion": ["ao", "occlusion"],
     "roughness": ["roughness", "r", "rough"],
     "metallic": ["metallic", "m", "metal"],
@@ -57,7 +57,7 @@ def apply_texture_overrides(asset: Asset, source_path: Path,
         entry = sidecar.get(mat.name) or sidecar.get("*")
         if entry:
             _apply_sidecar_entry(mat, entry, base_dir, log)
-        _apply_name_convention(mat, index, log)
+        _apply_name_convention(mat, index, asset.name, log)
 
 
 def apply_manual_assignments(asset: Asset, mapping: dict,
@@ -183,14 +183,21 @@ def _apply_sidecar_entry(mat: MaterialData, entry: dict, base_dir: Path,
 
 
 def _apply_name_convention(mat: MaterialData, index: dict,
-                           log: PipelineLog) -> None:
+                           asset_name: str, log: PipelineLog) -> None:
+    import re as _re
     stem = mat.name.lower()
-    variants = [stem]
-    # MI_/M_ prefiksy z UE — probujemy tez bez nich i z T_ zamiast
-    for pref in ("mi_", "m_"):
-        if stem.startswith(pref):
-            variants.append(stem[len(pref):])
-            variants.append("t_" + stem[len(pref):])
+    # Substance Painter: znaki specjalne w nazwie materialu -> '_'
+    sanitized = _re.sub(r"[^\w\- ]", "_", stem)
+    variants = []
+    for base in dict.fromkeys([stem, sanitized]):  # unikalne, kolejnosc
+        variants.append(base)
+        # Substance prefiksuje nazwa mesha/assetu: <asset>_<material>_Mapa
+        variants.append(f"{asset_name.lower()}_{base}")
+        # MI_/M_ prefiksy z UE — probujemy tez bez nich i z T_ zamiast
+        for pref in ("mi_", "m_"):
+            if base.startswith(pref):
+                variants.append(base[len(pref):])
+                variants.append("t_" + base[len(pref):])
     for key, sufs in SUFFIXES.items():
         for var in variants:
             hit = None

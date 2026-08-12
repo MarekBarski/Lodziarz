@@ -37,9 +37,19 @@
 - [x] GUI pywebview + tryb `--browser`, CLI batch
 - [x] `dist\Lodziarz.exe` portable onefile (64 MB)
 
-## Stuby / ograniczenia
-- [ ] bake backend `raycast` (TODO w `lodziarz/bake/raycast_cage.py`)
-- [ ] bake backend `cameras26` (TODO w `lodziarz/bake/camera26.py`)
+## Nowe w 0.5.0
+- **backend `raycast` ZAIMPLEMENTOWANY**: G-buffer w texel space, inflacja
+  cage wzdłuż normali (`--cage-offset`, 0 = auto 1% diag), raycast BVH
+  (trimesh+rtree), sampling barycentryczny starych UV, normalki przez TBN
+  trafionego trójkąta; CPU ~7k rays/s — tryb jakościowy/debug
+- **backend `cameras26` ZAIMPLEMENTOWANY**: 26 kamer ortho (ściany/krawędzie/
+  rogi sześcianu), 5 map + depth per kamera, wybór najlepszej widocznej kamery
+  per texel (dot(n, d) + test depth z biasem zależnym od rozdzielczości)
+- `bake/common.py`: wspólny G-buffer, kompozycja map, dilation, sampling
+- matmap: konwencja Substance Painter (`<mesh>_<Materiał>_BaseColor`,
+  `_OcclusionRoughnessMetallic`, znaki specjalne → `_`)
+
+## Ograniczenia
 - flat-shaded hard-surface słabo się redukuje (locked verts w meshopt) — patrz `docs/LOG_2026-08-12.md`
 
 ## Build

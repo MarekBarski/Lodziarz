@@ -245,6 +245,7 @@ class Handler(BaseHTTPRequestHandler):
                 atlas_resolution=max(512, min(4096, int(p.get("atlas", 1024)))),
                 dilation=max(0, min(64, int(p.get("dilation", 8)))),
                 ssaa=int(p.get("ssaa", 2)) if int(p.get("ssaa", 2)) in (1, 2, 4) else 2,
+                cage_offset=max(0.0, float(p.get("cageOffset", 0.0))),
                 input_normal_directx=bool(p.get("inputNormalDx", False)),
                 output_normal_directx=bool(p.get("outputNormalDx", False)),
                 texture_format=str(p.get("texFormat", "png")),

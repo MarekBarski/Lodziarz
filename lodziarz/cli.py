@@ -26,14 +26,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="ratio trojkatow na LOD (default 0.5)")
     pr.add_argument("--no-bake", action="store_true",
                     help="bez scalania materialow / bake atlasu")
-    pr.add_argument("--bake-from-lod", type=int, default=0,
-                    help="LOD-y ponizej N zostaja z oryginalnymi materialami, "
-                         "N i wyzsze dostaja atlas (default 0 = wszystkie)")
+    pr.add_argument("--bake-lods", default=None,
+                    help="ktore LOD-y dostaja atlas, np. '1,2,3' albo 'all' "
+                         "(default: wszystkie oprocz LOD0)")
     pr.add_argument("--backend", default="texel",
                     choices=["texel", "raycast", "cameras26"],
                     help="backend bake (default texel)")
-    pr.add_argument("--atlas", type=int, default=2048,
-                    help="rozdzielczosc atlasu 512-4096 (default 2048)")
+    pr.add_argument("--atlas", type=int, default=1024,
+                    help="rozdzielczosc atlasu 512-4096 (default 1024)")
     pr.add_argument("--dilation", type=int, default=8,
                     help="padding wysp w px (default 8)")
     pr.add_argument("--ssaa", type=int, default=2, choices=[1, 2, 4],
@@ -67,12 +67,29 @@ def _collect_inputs(inputs: list[str]) -> list[Path]:
     return files
 
 
+def _parse_bake_lods(raw, count: int):
+    if raw is None:
+        return None
+    raw = str(raw).strip().lower()
+    if raw == "all":
+        return list(range(count))
+    if raw in ("none", ""):
+        return []
+    try:
+        return sorted({int(x) for x in raw.split(",") if x.strip() != ""})
+    except ValueError:
+        print(f"zly format --bake-lods '{raw}' (np. '1,2,3' albo 'all')",
+              file=sys.stderr)
+        sys.exit(2)
+
+
 def run_process(args) -> int:
+    lod_count = max(1, args.lods)
     opts = ProcessOptions(
-        lod_count=max(1, args.lods),
+        lod_count=lod_count,
         lod_ratio=min(0.95, max(0.05, args.ratio)),
         bake=not args.no_bake,
-        bake_from_lod=max(0, args.bake_from_lod),
+        baked_lods=_parse_bake_lods(args.bake_lods, lod_count),
         bake_backend=args.backend,
         atlas_resolution=min(4096, max(512, args.atlas)),
         dilation=max(0, args.dilation),

@@ -43,12 +43,7 @@
     <section>
       <h2>Bake</h2>
       <label class="chk"><input id="bake" type="checkbox" checked> scal materialy + bake atlasu</label>
-      <div class="grid2">
-        <label title="LOD-y ponizej N zostaja z oryginalnymi materialami i UV; N i wyzsze dostaja atlas">
-          bake od LOD <input id="bakeFromLod" type="number" min="0" max="7" value="0">
-        </label>
-        <span></span>
-      </div>
+      <div id="bakeLodsRow" title="ktore LOD-y dostaja atlas; odznaczone zostaja z oryginalnymi materialami i UV"></div>
       <div class="grid2">
         <label>backend
           <select id="backend">
@@ -59,8 +54,8 @@
         </label>
         <label>atlas
           <select id="atlas">
-            <option>512</option><option>1024</option>
-            <option selected>2048</option><option>4096</option>
+            <option>512</option><option selected>1024</option>
+            <option>2048</option><option>4096</option>
           </select>
         </label>
         <label>dilation px <input id="dilation" type="number" min="0" max="64" value="8"></label>

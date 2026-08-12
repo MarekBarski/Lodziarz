@@ -138,9 +138,10 @@ class Handler(BaseHTTPRequestHandler):
                 lod_count=max(1, min(8, int(p.get("lods", 4)))),
                 lod_ratio=max(0.05, min(0.95, float(p.get("ratio", 0.5)))),
                 bake=bool(p.get("bake", True)),
-                bake_from_lod=max(0, min(7, int(p.get("bakeFromLod", 0)))),
+                baked_lods=[int(i) for i in p["bakedLods"]]
+                    if isinstance(p.get("bakedLods"), list) else None,
                 bake_backend=str(p.get("backend", "texel")),
-                atlas_resolution=max(512, min(4096, int(p.get("atlas", 2048)))),
+                atlas_resolution=max(512, min(4096, int(p.get("atlas", 1024)))),
                 dilation=max(0, min(64, int(p.get("dilation", 8)))),
                 ssaa=int(p.get("ssaa", 2)) if int(p.get("ssaa", 2)) in (1, 2, 4) else 2,
                 input_normal_directx=bool(p.get("inputNormalDx", False)),

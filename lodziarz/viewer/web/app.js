@@ -383,6 +383,33 @@ const $ = (id) => document.getElementById(id);
 const logEl = $("log");
 let lastLogLen = 0;
 
+// checkboxy "ktory LOD dostaje bake" — generowane pod liczbe LOD-ow;
+// default: LOD0 odznaczony (oryginalne materialy), reszta zaznaczona
+function rebuildBakeLodsRow() {
+  const row = $("bakeLodsRow");
+  const count = Math.max(1, Math.min(8, +$("lods").value || 4));
+  const prev = {};
+  row.querySelectorAll("input").forEach((c) => { prev[c.dataset.lod] = c.checked; });
+  row.innerHTML = "";
+  for (let i = 0; i < count; i++) {
+    const lab = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.dataset.lod = i;
+    cb.checked = i in prev ? prev[i] : i > 0;
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode("LOD" + i));
+    row.appendChild(lab);
+  }
+}
+rebuildBakeLodsRow();
+$("lods").addEventListener("input", rebuildBakeLodsRow);
+
+function bakedLodsFromUI() {
+  return [...$("bakeLodsRow").querySelectorAll("input")]
+    .filter((c) => c.checked).map((c) => +c.dataset.lod);
+}
+
 function logLine(text, cls) {
   const div = document.createElement("div");
   if (cls) div.className = cls;
@@ -412,7 +439,7 @@ $("processBtn").onclick = async () => {
     out: $("outPath").value.trim(),
     lods: +$("lods").value, ratio: +$("ratio").value,
     bake: $("bake").checked, backend: $("backend").value,
-    bakeFromLod: +$("bakeFromLod").value,
+    bakedLods: bakedLodsFromUI(),
     atlas: +$("atlas").value, dilation: +$("dilation").value,
     ssaa: +$("ssaa").value,
     inputNormalDx: $("inputNormalDx").checked,

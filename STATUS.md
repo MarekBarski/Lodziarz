@@ -5,9 +5,11 @@
 ## Nowe w 0.2.0
 - pipeline w osobnym procesie (`lodziarz/worker.py`): crash natywny (ufbx/GL/FBX SDK)
   nie zabija GUI ani batcha; `lodziarz_crash.log` w folderze wyjściowym
-- **bake od LOD N**: LOD-y < N zostają z oryginalnymi materiałami i UV,
-  LOD-y ≥ N dostają atlas (GUI: "bake od LOD", CLI: `--bake-from-lod N`)
+- **bake per LOD — dowolna maska checkboxami** (GUI: rząd checkboxów pod
+  liczbę LOD-ów; CLI: `--bake-lods "1,2,3"` / `"all"`); default: LOD0
+  z oryginalnymi materiałami, LOD1+ atlas
 - GLB: LOD-y bez bake mają primitives per materiał źródłowy
+- default atlasu: 1024 (było 2048)
 - NIEROZWIĄZANE: model użytkownika crashował 0.1.0 — teraz błąd będzie
   złapany i zalogowany; czekamy na retest i plik do debugowania
 

@@ -79,6 +79,16 @@ class RaycastCageBackend(BakeBackend):
                 hit_pt[start + ray_i] = loc
             log.progress(35 + 15 * end / n_tex, f"raycast {end}/{n_tex}")
 
+        # odrzuc trafienia w odlegla geometrie (np. przeciwna strona
+        # zamknietej bryly — trimesh nie gwarantuje najblizszego hitu);
+        # legalny hit lezy ~cage od origin + odchylka celu od zrodla
+        dist = np.linalg.norm(hit_pt - origins, axis=1)
+        far = (hit_tri >= 0) & (dist > cage * 3.0)
+        if far.any():
+            log.info(f"raycast: {int(far.sum())} trafien dalej niz 3x cage "
+                     f"— odrzucone (dilation)")
+            hit_tri[far] = -1
+
         hit = hit_tri >= 0
         miss = int((~hit).sum())
         if miss:

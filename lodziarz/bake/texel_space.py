@@ -79,7 +79,9 @@ class TexelSpaceBackend(BakeBackend):
 
     def bake(self, mesh: MeshData, old_uvs: np.ndarray,
              materials: list[MaterialData], opts: BakeOptions,
-             log: PipelineLog) -> BakeResult:
+             log: PipelineLog, source: MeshData | None = None) -> BakeResult:
+        # texel-space sampluje po starych UV celu — poprawny tylko gdy cel
+        # ma topologie zrodla (unwrap LOD0); source jest ignorowany
         import moderngl
 
         res = int(np.clip(opts.resolution, 64, 8192))

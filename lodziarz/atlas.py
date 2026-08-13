@@ -32,20 +32,13 @@ def unwrap_atlas(
     atlas.generate(chart_options=chart, pack_options=pack)
     vmapping, new_indices, new_uvs = atlas.get_mesh(0)
 
-    if len(new_indices) != len(mesh.indices):
-        log.warn(f"xatlas zmienil liczbe trojkatow "
-                 f"{len(mesh.indices)} -> {len(new_indices)}")
-
     vmapping = vmapping.astype(np.int64)
     old_uvs = np.ascontiguousarray(mesh.uvs[vmapping].astype(np.float32))
 
-    # xatlas NIE gwarantuje kolejnosci trojkatow — material odtwarzamy
-    # przez mape wierzcholek->material (majority z 3 rogow)
-    vert_mat = np.zeros(mesh.vertex_count, dtype=np.int32)
-    vert_mat[mesh.indices.ravel()] = np.repeat(mesh.tri_material, 3)
-    corner_mats = vert_mat[vmapping[new_indices.astype(np.int64)]]  # (T,3)
-    a, b, c = corner_mats[:, 0], corner_mats[:, 1], corner_mats[:, 2]
-    tri_material = np.where((a == b) | (a == c), a, b).astype(np.int32)
+    # material per trojkat przenosimy 1:1 — xatlas zachowuje kolejnosc
+    # trojkatow (weryfikacja po pozycjach rogow); zadnej rekonstrukcji
+    tri_material = _carry_tri_material(mesh, vmapping,
+                                       new_indices.astype(np.int64), log)
 
     out = MeshData(
         positions=np.ascontiguousarray(mesh.positions[vmapping]),
@@ -58,3 +51,31 @@ def unwrap_atlas(
     log.info(f"atlas: {out.vertex_count} verts po unwrap "
              f"(bylo {mesh.vertex_count})")
     return out, old_uvs
+
+
+def _carry_tri_material(mesh: MeshData, vmapping: np.ndarray,
+                        new_indices: np.ndarray, log: PipelineLog) -> np.ndarray:
+    """Material per trojkat po unwrap — bez glosowania, mapowanie exact."""
+    orig_idx = mesh.indices.astype(np.int64)
+    if len(new_indices) == len(orig_idx):
+        same = np.allclose(mesh.positions[orig_idx],
+                           mesh.positions[vmapping[new_indices]])
+        if same:
+            return mesh.tri_material.copy()
+
+    # fallback: xatlas zmienil kolejnosc/liczbe — mapuj po tuplach
+    # oryginalnych wierzcholkow
+    log.warn("xatlas zmienil kolejnosc/liczbe trojkatow — mapowanie po tuplach")
+    tri_of = {tuple(t): i for i, t in enumerate(np.sort(orig_idx, axis=1))}
+    out = np.zeros(len(new_indices), dtype=np.int32)
+    missing = 0
+    for i, t in enumerate(np.sort(vmapping[new_indices], axis=1)):
+        j = tri_of.get(tuple(t))
+        if j is None:
+            missing += 1
+        else:
+            out[i] = mesh.tri_material[j]
+    if missing:
+        log.warn(f"{missing} trojkatow bez odpowiednika po unwrap "
+                 f"(material 0)")
+    return out

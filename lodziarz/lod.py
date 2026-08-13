@@ -19,6 +19,7 @@ def build_lod_chain(
     normal_weight: float = 0.5,
     uv_weight: float = 1.0,
     log: PipelineLog | None = None,
+    label_start: int = 0,
 ) -> list[MeshData]:
     """Zwraca [LOD0, LOD1, ...] — count pozycji, kazdy ~ratio^n trojkatow LOD0."""
     if count < 1:
@@ -40,7 +41,7 @@ def build_lod_chain(
             target_error=error_budget,
         )
         if len(new_indices) >= len(prev_indices) and log:
-            log.warn(f"LOD{n}: simplifier nie zszedl nizej "
+            log.warn(f"LOD{label_start + n}: simplifier nie zszedl nizej "
                      f"({len(new_indices)} tri) — mesh za prosty")
         tri_material = tri_of(new_indices)
         lods.append(MeshData(
@@ -52,7 +53,7 @@ def build_lod_chain(
             uvs2=lod0.uvs2,
         ))
         if log:
-            log.info(f"LOD{n}: {len(new_indices)} tri "
+            log.info(f"LOD{label_start + n}: {len(new_indices)} tri "
                      f"(cel {target * 100:.0f}%, error {err:.4f})")
         prev_indices = new_indices
     return [_compact(m) for m in lods]

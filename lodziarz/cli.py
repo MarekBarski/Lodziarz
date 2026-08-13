@@ -41,10 +41,11 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--cage-offset", type=float, default=0.0,
                     help="raycast: inflacja cage w metrach (0 = auto 1%% diag)")
     pr.add_argument("--tga", action="store_true", help="tekstury TGA zamiast PNG")
-    pr.add_argument("--normal-dx", action="store_true",
-                    help="zapisz normal mape w konwencji DirectX (flip G)")
-    pr.add_argument("--input-normal-dx", action="store_true",
-                    help="wejsciowe normalki sa DirectX")
+    pr.add_argument("--normal-gl", action="store_true",
+                    help="zapisz normal mape w konwencji OpenGL "
+                         "(default: DirectX)")
+    pr.add_argument("--input-normal-gl", action="store_true",
+                    help="wejsciowe normalki sa OpenGL (default: DirectX)")
     pr.add_argument("--per-lod-fbx", action="store_true",
                     help="dodatkowo kazdy LOD osobnym plikiem SM_*_LODn.fbx")
     pr.add_argument("--embed-textures", action="store_true",
@@ -102,8 +103,8 @@ def run_process(args) -> int:
         dilation=max(0, args.dilation),
         ssaa=args.ssaa,
         cage_offset=max(0.0, args.cage_offset),
-        input_normal_directx=args.input_normal_dx,
-        output_normal_directx=args.normal_dx,
+        input_normal_directx=not args.input_normal_gl,
+        output_normal_directx=not args.normal_gl,
         texture_format="tga" if args.tga else "png",
         fbx_per_lod=args.per_lod_fbx,
         fbx_embed_textures=args.embed_textures,

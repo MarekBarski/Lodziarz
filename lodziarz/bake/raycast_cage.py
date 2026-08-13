@@ -1,14 +1,15 @@
 """Bake przez raycast z cage'a.
 
-Per texel nowego atlasu: pozycja/normala z G-buffera (rasteryzacja nowych UV),
-inflacja wzdluz normali o cage_offset, raycast w strone powierzchni zrodlowej
-(BVH trimesha), sampling materialow zrodlowych w punkcie trafienia
-(barycentryczne stare UV). Normalki: mapa zrodlowa -> world (TBN trojkata
-trafionego) -> tangent space celu.
+Per texel nowego atlasu: pozycja/normala z G-buffera (rasteryzacja nowych UV
+celu), inflacja wzdluz normali o cage_offset, raycast w strone powierzchni
+ZRODLA (BVH trimesha; source = oryginalna siatka, np. LOD0), sampling
+materialow zrodlowych w punkcie trafienia (barycentryczne UV zrodla).
+Material per texel = tri_material trafionego trojkata zrodla — granice
+materialow sa per pixel, niezalezne od topologii celu. Normalki: mapa
+zrodlowa -> world (TBN trojkata trafionego) -> tangent space celu.
 
-Sens ma glownie przy roznej geometrii zrodlo/cel (high->low poly) i przy
-nachodzacych na siebie shellach; dla czystego re-atlasu texel-space jest
-szybszy. Raycast po CPU — wolniejszy, traktuj jako tryb jakosciowy/debug.
+Raycast po CPU — wolniejszy od texel-space, ale jedyny poprawny gdy cel
+ma inna topologie niz zrodlo (bake na zdecymowanym LOD-zie).
 """
 from __future__ import annotations
 
@@ -28,16 +29,19 @@ class RaycastCageBackend(BakeBackend):
 
     def bake(self, mesh: MeshData, old_uvs: np.ndarray,
              materials: list[MaterialData], opts: BakeOptions,
-             log: PipelineLog) -> BakeResult:
+             log: PipelineLog, source: MeshData | None = None) -> BakeResult:
         import moderngl
         import trimesh
 
+        src = source if source is not None else mesh
+        src_uvs = src.uvs if source is not None else old_uvs
+
         res = int(np.clip(opts.resolution, 64, 4096))
-        ext = mesh.positions.max(axis=0) - mesh.positions.min(axis=0)
+        ext = src.positions.max(axis=0) - src.positions.min(axis=0)
         diag = float(np.linalg.norm(ext)) or 1.0
         cage = opts.cage_offset if opts.cage_offset > 0 else diag * 0.01
-        log.info(f"bake raycast-cage: {res}px, cage offset {cage:.4f} m "
-                 f"(CPU raycast — wolniejszy od texel-space)")
+        log.info(f"bake raycast-cage: {res}px, cage offset {cage:.4f} m, "
+                 f"zrodlo {len(src.indices)} tri -> cel {len(mesh.indices)} tri")
 
         ctx = moderngl.create_context(standalone=True)
         try:
@@ -54,11 +58,10 @@ class RaycastCageBackend(BakeBackend):
         log.info(f"pokrycie atlasu: {cov.mean() * 100:.1f}% "
                  f"({n_tex} texeli do raycastu)")
 
-        # zrodlo: ta sama siatka, stare UV i materialy
-        source = trimesh.Trimesh(vertices=mesh.positions.astype(np.float64),
-                                 faces=mesh.indices.astype(np.int64),
+        src_tm = trimesh.Trimesh(vertices=src.positions.astype(np.float64),
+                                 faces=src.indices.astype(np.int64),
                                  process=False)
-        caster = _make_caster(source, log)
+        caster = _make_caster(src_tm, log)
 
         origins = pos + nrm * cage
         dirs = -nrm.astype(np.float64)
@@ -82,12 +85,12 @@ class RaycastCageBackend(BakeBackend):
             log.warn(f"raycast: {miss} texeli bez trafienia "
                      f"({miss / n_tex * 100:.1f}%) — wypelni je dilation")
 
-        # barycentryczne stare UV + material w punkcie trafienia
-        old_tan = compute_tangents(mesh, old_uvs)
-        tris = mesh.indices[hit_tri[hit]]                       # (H,3)
-        v0 = mesh.positions[tris[:, 0]].astype(np.float64)
-        v1 = mesh.positions[tris[:, 1]].astype(np.float64)
-        v2 = mesh.positions[tris[:, 2]].astype(np.float64)
+        # barycentryczne UV zrodla + material w punkcie trafienia (per pixel)
+        src_tan = compute_tangents(src, src_uvs)
+        tris = src.indices[hit_tri[hit]]                        # (H,3)
+        v0 = src.positions[tris[:, 0]].astype(np.float64)
+        v1 = src.positions[tris[:, 1]].astype(np.float64)
+        v2 = src.positions[tris[:, 2]].astype(np.float64)
         bary = _barycentric(hit_pt[hit], v0, v1, v2)            # (H,3)
 
         def interp(attr: np.ndarray) -> np.ndarray:
@@ -95,10 +98,10 @@ class RaycastCageBackend(BakeBackend):
                     + attr[tris[:, 1]] * bary[:, 1:2]
                     + attr[tris[:, 2]] * bary[:, 2:3])
 
-        uv_hit = interp(old_uvs.astype(np.float64))
-        nrm_hit = interp(mesh.normals.astype(np.float64))
-        tan_hit = interp(old_tan.astype(np.float64))
-        mat_hit = mesh.tri_material[hit_tri[hit]]
+        uv_hit = interp(src_uvs.astype(np.float64))
+        nrm_hit = interp(src.normals.astype(np.float64))
+        tan_hit = interp(src_tan.astype(np.float64))
+        mat_hit = src.tri_material[hit_tri[hit]]
 
         # sampling materialow per texel
         mat_arrays = [compose_material_arrays(m) for m in materials]

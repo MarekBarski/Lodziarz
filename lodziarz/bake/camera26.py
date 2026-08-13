@@ -1,11 +1,11 @@
 """Bake przez projekcje z 26 kamer ortho wokol obiektu.
 
 26 kierunkow = srodki scian/krawedzi/rogow szescianu wokol AABB. Kazda kamera
-renderuje zrodlo (stare UV + materialy) do 5 map (basecolor, normal world,
-orm, emissive, opacity) + depth. Per texel nowego atlasu: pozycja/normala
-z G-buffera -> wybor najlepszej widocznej kamery (dot(n, -dir), test depth),
-reprojekcja i sampling renderu. Przydatne do debugowania artefaktow bake'u
-i dla assetow z uszkodzonymi zrodlowymi UV.
+renderuje ZRODLO (source = oryginalna siatka: jej UV + materialy) do 5 map
+(basecolor, normal world, orm, emissive, opacity) + depth. Per texel nowego
+atlasu CELU: pozycja/normala z G-buffera -> wybor najlepszej widocznej kamery
+(dot(n, -dir), test depth), reprojekcja i sampling renderu. Granice materialow
+sa per pixel (ze screen-space renderu zrodla), niezalezne od topologii celu.
 """
 from __future__ import annotations
 
@@ -108,27 +108,32 @@ class Camera26Backend(BakeBackend):
 
     def bake(self, mesh: MeshData, old_uvs: np.ndarray,
              materials: list[MaterialData], opts: BakeOptions,
-             log: PipelineLog) -> BakeResult:
+             log: PipelineLog, source: MeshData | None = None) -> BakeResult:
         import moderngl
+
+        src = source if source is not None else mesh
+        src_uvs = src.uvs if source is not None else old_uvs
 
         res = int(np.clip(opts.resolution, 64, 4096))
         cam_res = min(2048, res)
-        center = (mesh.positions.max(axis=0) + mesh.positions.min(axis=0)) / 2.0
-        radius = float(np.linalg.norm(
-            mesh.positions.max(axis=0) - mesh.positions.min(axis=0))) / 2.0
+        lo = np.minimum(src.positions.min(axis=0), mesh.positions.min(axis=0))
+        hi = np.maximum(src.positions.max(axis=0), mesh.positions.max(axis=0))
+        center = (hi + lo) / 2.0
+        radius = float(np.linalg.norm(hi - lo)) / 2.0
         radius = max(radius, 1e-6) * 1.05
         dirs = _camera_dirs()
-        log.info(f"bake 26-camera: atlas {res}px, kamery {cam_res}px")
+        log.info(f"bake 26-camera: atlas {res}px, kamery {cam_res}px, "
+                 f"zrodlo {len(src.indices)} tri -> cel {len(mesh.indices)} tri")
 
         ctx = moderngl.create_context(standalone=True)
         try:
-            return self._bake_gl(ctx, mesh, old_uvs, materials, opts, res,
+            return self._bake_gl(ctx, mesh, src, src_uvs, materials, opts, res,
                                  cam_res, center.astype(np.float64), radius,
                                  dirs, log)
         finally:
             ctx.release()
 
-    def _bake_gl(self, ctx, mesh, old_uvs, materials, opts, res, cam_res,
+    def _bake_gl(self, ctx, mesh, src, src_uvs, materials, opts, res, cam_res,
                  center, radius, dirs, log) -> BakeResult:
         import moderngl
 
@@ -139,20 +144,20 @@ class Camera26Backend(BakeBackend):
             prog[name] = i
         prog["uFlipInputG"] = bool(opts.input_normal_flip_g)
 
-        old_tan = compute_tangents(mesh, old_uvs)
+        src_tan = compute_tangents(src, src_uvs)
         vbo_data = np.hstack([
-            mesh.positions.astype(np.float32),
-            old_uvs.astype(np.float32),
-            mesh.normals.astype(np.float32),
-            old_tan.astype(np.float32),
+            src.positions.astype(np.float32),
+            src_uvs.astype(np.float32),
+            src.normals.astype(np.float32),
+            src_tan.astype(np.float32),
         ]).astype(np.float32)
         vbo = ctx.buffer(vbo_data.tobytes())
 
         mat_texs = [material_gl_textures(ctx, m) for m in materials]
         ibos = []
         for mat_id in range(len(materials)):
-            tri_mask = mesh.tri_material == mat_id
-            sub = np.ascontiguousarray(mesh.indices[tri_mask], dtype=np.uint32)
+            tri_mask = src.tri_material == mat_id
+            sub = np.ascontiguousarray(src.indices[tri_mask], dtype=np.uint32)
             ibos.append(ctx.buffer(sub.tobytes()) if len(sub) else None)
 
         targets = [ctx.texture((cam_res, cam_res), 4) for _ in range(5)]
@@ -239,8 +244,14 @@ class Camera26Backend(BakeBackend):
 
         got = best_cam >= 0
         if (~got).any():
-            log.warn(f"26-camera: {int((~got).sum())} texeli bez widocznej "
-                     f"kamery — wypelni je dilation")
+            # fallback: cel (zdecymowany LOD) moze odstawac od powierzchni
+            # zrodla bardziej niz bias — bierz kamere o najlepszym kacie
+            fb = ~got & (scores.max(axis=1) > 0.05)
+            best_cam[fb] = scores[fb].argmax(axis=1)
+            log.info(f"26-camera: {int(fb.sum())} texeli bez testu depth "
+                     f"(fallback po kacie), {int((~got & ~fb).sum())} "
+                     f"pustych — wypelni je dilation")
+            got = best_cam >= 0
 
         out = {k: np.zeros((res, res, 3), dtype=np.uint8)
                for k in ("basecolor", "normal", "orm", "emissive", "opacity")}

@@ -43,8 +43,11 @@ class BakeBackend(ABC):
     @abstractmethod
     def bake(self, mesh: MeshData, old_uvs: np.ndarray,
              materials: list[MaterialData], opts: BakeOptions,
-             log: PipelineLog) -> BakeResult:
-        """mesh.uvs = NOWY atlas UV; old_uvs = stare UV per wierzcholek."""
+             log: PipelineLog, source: MeshData | None = None) -> BakeResult:
+        """mesh (cel): .uvs = NOWY atlas UV; old_uvs = stare UV per wierzcholek
+        celu (uzywa texel). source (projekcja): oryginalna siatka zrodlowa —
+        stare UV w .uvs, materialy w .tri_material; material i UV per texel
+        wynikaja z punktu trafienia na source (per pixel, nie per trojkat)."""
 
 
 def get_backend(name: str) -> BakeBackend:

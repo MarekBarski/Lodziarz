@@ -35,8 +35,8 @@ class ProcessOptions:
     dilation: int = 8
     ssaa: int = 2                        # antyaliasing bake: 1 (off) / 2 / 4
     cage_offset: float = 0.0             # raycast: inflacja cage w m (0 = auto)
-    input_normal_directx: bool = False   # wejsciowe normalki DX (flip G przy bake)
-    output_normal_directx: bool = False  # zapis normalki jako DX
+    input_normal_directx: bool = True    # wejsciowe normalki DX (flip G przy bake)
+    output_normal_directx: bool = True   # zapis normalki jako DX
     texture_format: str = "png"          # png | tga
     fbx_per_lod: bool = False            # dodatkowo osobne pliki SM_*_LODn.fbx
     fbx_embed_textures: bool = False     # tekstury wbudowane w FBX
@@ -98,15 +98,36 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
     if opts.bake and not any_baked:
         log.info("zaden LOD nie zaznaczony do bake — pomijam bake")
 
+    all_baked = all(mask)
+    first_baked = mask.index(True) if any_baked else None
+
+    # lancuch LOD z ORYGINALNEJ siatki — potrzebny dla LOD-ow bez bake
+    # oraz jako geometria najgestszego bake'owanego LOD-a
+    orig_chain = None
+    if not all_baked or (first_baked or 0) > 0:
+        log.progress(10, f"LOD-y ({count}, ratio {opts.lod_ratio})")
+        orig_chain = build_lod_chain(asset.mesh, count=count,
+                                     ratio=opts.lod_ratio, log=log)
+
     if any_baked:
         log.info("bake dla: " + ", ".join(f"LOD{i}" for i, b in enumerate(mask) if b)
                  + " | oryginalne materialy: "
                  + (", ".join(f"LOD{i}" for i, b in enumerate(mask) if not b) or "—"))
-        log.progress(15, "unwrap UV (xatlas)")
-        baked_mesh, old_uvs = unwrap_atlas(asset.mesh, opts.atlas_resolution,
+        # unwrap UV na najgestszym LOD-zie z bake; bardziej zdecymowane
+        # dziedzicza ten atlas przez decymacje z zachowaniem UV
+        base = asset.mesh if first_baked == 0 else orig_chain[first_baked]
+        log.progress(15, f"unwrap UV LOD{first_baked} (xatlas)")
+        baked_mesh, old_uvs = unwrap_atlas(base, opts.atlas_resolution,
                                            max(2, opts.dilation // 2), log)
-        log.progress(35, f"bake ({opts.bake_backend})")
-        backend = get_backend(opts.bake_backend)
+        backend_name = opts.bake_backend
+        if backend_name == "texel" and first_baked > 0:
+            log.warn("texel-space wymaga topologii zrodla — LOD"
+                     f"{first_baked} jest zdecymowany, przelaczam na raycast")
+            backend_name = "raycast"
+        log.progress(35, f"bake ({backend_name})")
+        backend = get_backend(backend_name)
+        # zrodlo projekcji: ORYGINALNA siatka (stare UV + materialy) —
+        # material per texel wynika z trafienia na zrodle, per pixel
         bake_res = backend.bake(
             baked_mesh, old_uvs, asset.materials,
             BakeOptions(resolution=opts.atlas_resolution,
@@ -114,7 +135,7 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
                         ssaa=opts.ssaa,
                         cage_offset=opts.cage_offset,
                         input_normal_flip_g=opts.input_normal_directx),
-            log)
+            log, source=asset.mesh)
         baked_images = bake_res.images
         log.progress(55, "zapis tekstur")
         texture_files = save_textures(
@@ -122,15 +143,11 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
             normal_directx=opts.output_normal_directx, log=log)
         save_debug(bake_res, asset.name, out_dir, log)
 
-    log.progress(60, f"LOD-y ({count}, ratio {opts.lod_ratio})")
-    all_baked = all(mask)
-    if any_baked:
-        baked_chain = build_lod_chain(baked_mesh, count=count,
-                                      ratio=opts.lod_ratio, log=log)
-    orig_chain = None
-    if not all_baked:
-        orig_chain = build_lod_chain(asset.mesh, count=count,
-                                     ratio=opts.lod_ratio, log=log)
+        log.progress(60, f"LOD-y z atlasem (od LOD{first_baked})")
+        sub = build_lod_chain(baked_mesh, count=count - first_baked,
+                              ratio=opts.lod_ratio, log=log,
+                              label_start=first_baked)
+        baked_chain = [None] * first_baked + sub
 
     if all_baked:
         materials = [MaterialData(name=f"M_{asset.name}")]
@@ -143,7 +160,9 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
         baked_idx = None
     if any_baked:
         for m in baked_chain:
-            m.tri_material = np.full(len(m.indices), baked_idx, dtype=np.int32)
+            if m is not None:
+                m.tri_material = np.full(len(m.indices), baked_idx,
+                                         dtype=np.int32)
 
     lods = [baked_chain[i] if mask[i] else orig_chain[i] for i in range(count)]
     chain = LodChain(asset_name=asset.name, lods=lods, materials=materials,

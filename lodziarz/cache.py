@@ -58,7 +58,8 @@ def _unpack_materials(data: dict) -> list[MaterialData]:
 def save_cache(path: Path, *, asset_name: str,
                baked_lods: list[MeshData], orig_lods: list[MeshData],
                materials: list[MaterialData], texture_files: dict,
-               embed: bool, per_lod: bool) -> None:
+               embed: bool, per_lod: bool,
+               formats: dict | None = None) -> None:
     with open(path, "wb") as f:
         pickle.dump({
             "version": 1,
@@ -69,6 +70,7 @@ def save_cache(path: Path, *, asset_name: str,
             "texture_files": texture_files,
             "embed": embed,
             "per_lod": per_lod,
+            "formats": formats or {"fbx": True, "glb": True, "obj": False},
         }, f)
 
 

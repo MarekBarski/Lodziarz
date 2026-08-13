@@ -414,6 +414,24 @@ function forEachStdMaterial(fn) {
   });
 }
 
+// sloty kanalowe: AO czyta R, roughness G, metallic B (packed ORM);
+// grayscale w tych slotach ma R=G=B, wiec kanal tez jest poprawny
+const SLOT_CHANNEL = { ao: 0, rough: 1, metal: 2 };
+
+function drawSlotImage(g, img, w, h, slot) {
+  try { g.drawImage(img, 0, 0, w, h); } catch { /* ImageBitmap z GLB */
+    try { g.drawImage(img, 0, 0, img.width, img.height, 0, 0, w, h); } catch { return; }
+  }
+  const ch = SLOT_CHANNEL[slot];
+  if (ch === undefined) return;
+  const d = g.getImageData(0, 0, w, h);
+  for (let i = 0; i < d.data.length; i += 4) {
+    const v = d.data[i + ch];
+    d.data[i] = d.data[i + 1] = d.data[i + 2] = v;
+  }
+  g.putImageData(d, 0, 0);
+}
+
 function refreshSlotThumbs() {
   document.querySelectorAll(".slot").forEach((el) => {
     const slot = el.dataset.slot;
@@ -424,16 +442,47 @@ function refreshSlotThumbs() {
     let tex = slotTextures[slot];
     if (!tex) forEachStdMaterial((m) => { if (!tex) tex = SLOT_GET[slot](m); });
     const img = tex && tex.image;
+    el.dataset.hasTex = img && (img.width || img.videoWidth) ? "1" : "";
     if (img && (img.width || img.videoWidth)) {
-      try { g.drawImage(img, 0, 0, w, h); } catch { /* ImageBitmap z GLB */
-        try { g.drawImage(img, 0, 0, img.width, img.height, 0, 0, w, h); } catch {}
-      }
+      drawSlotImage(g, img, w, h, slot);
     } else {
       g.fillStyle = "#3a4150"; g.font = "10px sans-serif";
-      g.fillText("brak", w / 2 - 10, h / 2 + 3);
+      const none = (typeof t === "function") ? t("none") : "none";
+      g.fillText(none, w / 2 - 10, h / 2 + 3);
     }
   });
 }
+
+// powiekszony podglad mapy na hover (miniaturki sa male)
+const zoomEl = document.createElement("canvas");
+zoomEl.id = "slotZoom";
+zoomEl.width = zoomEl.height = 512;
+document.body.appendChild(zoomEl);
+
+function showSlotZoom(el) {
+  const slot = el.dataset.slot;
+  if (!el.dataset.hasTex) { hideSlotZoom(); return; }
+  let tex = slotTextures[slot];
+  if (!tex) forEachStdMaterial((m) => { if (!tex) tex = SLOT_GET[slot](m); });
+  const img = tex && tex.image;
+  if (!img) { hideSlotZoom(); return; }
+  const g = zoomEl.getContext("2d");
+  g.fillStyle = "#101216"; g.fillRect(0, 0, 512, 512);
+  drawSlotImage(g, img, 512, 512, slot);
+  const r = el.getBoundingClientRect();
+  zoomEl.style.display = "block";
+  // nad panelem map, przy krawedzi slotu, nie wychodzac poza okno
+  const x = Math.max(8, Math.min(window.innerWidth - 520, r.left - 200));
+  const y = Math.max(8, r.top - 520 - 8);
+  zoomEl.style.left = x + "px";
+  zoomEl.style.top = y + "px";
+}
+function hideSlotZoom() { zoomEl.style.display = "none"; }
+
+document.querySelectorAll(".slot").forEach((el) => {
+  el.addEventListener("mouseenter", () => showSlotZoom(el));
+  el.addEventListener("mouseleave", hideSlotZoom);
+});
 
 document.querySelectorAll(".slot").forEach((el) => {
   el.addEventListener("dragover", (e) => { e.preventDefault(); el.classList.add("dragover"); });
@@ -464,6 +513,79 @@ document.querySelectorAll(".slot").forEach((el) => {
     });
   });
 });
+
+// ------------------------------------------------------------ i18n
+// angielski default; wybor zapamietany w localStorage
+const I18N = {
+  en: {
+    input_header: "Input", input_ph: "FBX / OBJ / glTF / GLB file",
+    browse_file: "choose file", up_axis: "up axis",
+    up_axis_title: "auto reads from file (FBX); Z-up = UE / 3ds Max",
+    load_btn: "Load", out_ph: "output folder", browse_folder: "choose folder",
+    materials_header: "Materials", lods_header: "LODs", lods_count: "count",
+    bake_merge: "merge materials + bake atlas",
+    bake_lods_title: "which LODs get the atlas; unchecked keep original materials and UVs",
+    dilation: "dilation px", aa: "antialiasing",
+    in_normal_dx: "input normal maps are DirectX",
+    out_normal_dx: "write normal map as DirectX",
+    textures: "textures", orm_maps: "AO/R/M maps",
+    orm_mode_title: "ORM = one RGB file; separate = AO + Roughness/Glossiness + Metallic",
+    orm_packed: "packed ORM", orm_split: "separate (roughness)",
+    orm_split_gloss: "separate (glossiness)",
+    embed_tex: "embed textures into FBX",
+    uv_checker_baked: "UV checker (baked)", uv_checker_orig: "UV checker (original)",
+    uv_flat_baked: "UV flat (baked)", uv_flat_orig: "UV flat (original)",
+    normal_dx_title: "normal map convention in preview",
+    maps_hint: "packed ORM or separate maps; gloss = inverted rough. drag&drop PNG/JPG",
+    none: "none",
+  },
+  pl: {
+    input_header: "Wejscie", input_ph: "plik FBX / OBJ / glTF / GLB",
+    browse_file: "wybierz plik", up_axis: "os pionowa",
+    up_axis_title: "auto czyta z pliku (FBX); Z-up = UE / 3ds Max",
+    load_btn: "Wczytaj", out_ph: "folder wyjsciowy", browse_folder: "wybierz folder",
+    materials_header: "Materialy", lods_header: "LOD-y", lods_count: "liczba",
+    bake_merge: "scal materialy + bake atlasu",
+    bake_lods_title: "ktore LOD-y dostaja atlas; odznaczone zostaja z oryginalnymi materialami i UV",
+    dilation: "dilation px", aa: "antyaliasing",
+    in_normal_dx: "wejsciowe normalki DirectX",
+    out_normal_dx: "zapis normalki DirectX",
+    textures: "tekstury", orm_maps: "mapy AO/R/M",
+    orm_mode_title: "ORM = jeden plik RGB; osobno = AO + Roughness/Glossiness + Metallic",
+    orm_packed: "ORM spakowane", orm_split: "osobno (roughness)",
+    orm_split_gloss: "osobno (glossiness)",
+    embed_tex: "wbuduj tekstury do FBX",
+    uv_checker_baked: "UV checker (po bake)", uv_checker_orig: "UV checker (oryginalne)",
+    uv_flat_baked: "UV flat (po bake)", uv_flat_orig: "UV flat (oryginalne)",
+    normal_dx_title: "konwencja normal mapy w podgladzie",
+    maps_hint: "packed ORM albo mapy osobno; gloss = odwrocony rough. drag&drop PNG/JPG",
+    none: "brak",
+  },
+};
+let currentLang = localStorage.getItem("lodziarz_lang") || "en";
+const t = (k) => (I18N[currentLang] || {})[k] || I18N.en[k] || k;
+
+function applyLang(lang) {
+  currentLang = I18N[lang] ? lang : "en";
+  localStorage.setItem("lodziarz_lang", currentLang);
+  document.documentElement.lang = currentLang;
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-ph]").forEach((el) => {
+    el.placeholder = t(el.dataset.i18nPh);
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    el.title = t(el.dataset.i18nTitle);
+  });
+  document.querySelectorAll("#langRow button").forEach((b) =>
+    b.classList.toggle("active", b.dataset.lang === currentLang));
+  refreshSlotThumbs();
+}
+document.querySelectorAll("#langRow button").forEach((b) => {
+  b.onclick = () => applyLang(b.dataset.lang);
+});
+applyLang(currentLang);
 
 // ------------------------------------------------------------ panel / API
 const $ = (id) => document.getElementById(id);
@@ -633,6 +755,10 @@ $("processBtn").onclick = async () => {
     inputNormalDx: $("inputNormalDx").checked,
     outputNormalDx: $("outputNormalDx").checked,
     texFormat: $("texFormat").value,
+    ormMode: $("ormMode").value,
+    exportFbx: $("exportFbx").checked,
+    exportGlb: $("exportGlb").checked,
+    exportObj: $("exportObj").checked,
     perLodFbx: $("perLodFbx").checked,
     embedTextures: $("embedTextures").checked,
     up: $("upAxis").value,

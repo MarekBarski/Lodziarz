@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="pl">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <title>Lodziarz — LOD + Bake + Viewer</title>
 <link rel="stylesheet" href="style.css">
-<link rel="icon" href="data:,">
+<link rel="icon" href="mascot.png">
 <script type="importmap">
 { "imports": {
     "three": "./vendor/three.module.min.js",
@@ -18,47 +18,52 @@
 <body>
 <div id="layout">
   <aside id="panel">
-    <h1>Lodziarz</h1>
+    <h1>
+      <img id="logo" src="logo.png" alt="Lodziarz">
+      <span id="langRow">
+        <button data-lang="en">EN</button><button data-lang="pl">PL</button>
+      </span>
+    </h1>
 
     <section>
-      <h2>Wejscie</h2>
+      <h2 data-i18n="input_header">Input</h2>
       <div class="row">
-        <input id="inputPath" type="text" placeholder="plik FBX / OBJ / glTF / GLB">
-        <button id="browseInput" title="wybierz plik">…</button>
+        <input id="inputPath" type="text" data-i18n-ph="input_ph" placeholder="FBX / OBJ / glTF / GLB file">
+        <button id="browseInput" data-i18n-title="browse_file" title="choose file">…</button>
       </div>
       <div class="row">
-        <label style="flex-direction:row;align-items:center;gap:6px;flex:1">os pionowa
-          <select id="upAxis" title="auto czyta z pliku (FBX); Z-up = UE / 3ds Max">
+        <label style="flex-direction:row;align-items:center;gap:6px;flex:1"><span data-i18n="up_axis">up axis</span>
+          <select id="upAxis" data-i18n-title="up_axis_title" title="auto reads from file (FBX); Z-up = UE / 3ds Max">
             <option value="auto" selected>auto</option>
             <option value="y">Y-up (Maya/Unity)</option>
             <option value="z">Z-up (UE/Max)</option>
           </select>
         </label>
-        <button id="loadBtn" class="primary" style="width:auto;margin:0;padding:5px 16px">Wczytaj</button>
+        <button id="loadBtn" class="primary" style="width:auto;margin:0;padding:5px 16px" data-i18n="load_btn">Load</button>
       </div>
       <div class="row">
-        <input id="outPath" type="text" placeholder="folder wyjsciowy">
-        <button id="browseOut" title="wybierz folder">…</button>
+        <input id="outPath" type="text" data-i18n-ph="out_ph" placeholder="output folder">
+        <button id="browseOut" data-i18n-title="browse_folder" title="choose folder">…</button>
       </div>
     </section>
 
     <section id="materialsSection" style="display:none">
-      <h2>Materialy <span id="matCount"></span></h2>
+      <h2><span data-i18n="materials_header">Materials</span> <span id="matCount"></span></h2>
       <div id="materialsList"></div>
     </section>
 
     <section>
-      <h2>LOD-y</h2>
+      <h2 data-i18n="lods_header">LODs</h2>
       <div class="grid2">
-        <label>liczba <input id="lods" type="number" min="1" max="8" value="4"></label>
+        <label><span data-i18n="lods_count">count</span> <input id="lods" type="number" min="1" max="8" value="4"></label>
         <label>ratio <input id="ratio" type="number" min="0.05" max="0.95" step="0.05" value="0.5"></label>
       </div>
     </section>
 
     <section>
       <h2>Bake</h2>
-      <label class="chk"><input id="bake" type="checkbox" checked> scal materialy + bake atlasu</label>
-      <div id="bakeLodsRow" title="ktore LOD-y dostaja atlas; odznaczone zostaja z oryginalnymi materialami i UV"></div>
+      <label class="chk"><input id="bake" type="checkbox" checked> <span data-i18n="bake_merge">merge materials + bake atlas</span></label>
+      <div id="bakeLodsRow" data-i18n-title="bake_lods_title" title="which LODs get the atlas; unchecked keep original materials and UVs"></div>
       <div class="grid2">
         <label>backend
           <select id="backend">
@@ -73,8 +78,8 @@
             <option>2048</option><option>4096</option>
           </select>
         </label>
-        <label>dilation px <input id="dilation" type="number" min="0" max="64" value="8"></label>
-        <label>antyaliasing
+        <label><span data-i18n="dilation">dilation px</span> <input id="dilation" type="number" min="0" max="64" value="8"></label>
+        <label><span data-i18n="aa">antialiasing</span>
           <select id="ssaa">
             <option value="1">off</option>
             <option value="2" selected>2&times;</option>
@@ -82,15 +87,31 @@
           </select>
         </label>
       </div>
-      <label class="chk"><input id="inputNormalDx" type="checkbox" checked> wejsciowe normalki DirectX</label>
-      <label class="chk"><input id="outputNormalDx" type="checkbox" checked> zapis normalki DirectX</label>
+      <label class="chk"><input id="inputNormalDx" type="checkbox" checked> <span data-i18n="in_normal_dx">input normal maps are DirectX</span></label>
+      <label class="chk"><input id="outputNormalDx" type="checkbox" checked> <span data-i18n="out_normal_dx">write normal map as DirectX</span></label>
       <div class="grid2">
-        <label>tekstury
+        <label><span data-i18n="textures">textures</span>
           <select id="texFormat"><option selected>png</option><option>tga</option></select>
         </label>
-        <label class="chk" style="align-self:end"><input id="perLodFbx" type="checkbox"> FBX per LOD</label>
+        <label><span data-i18n="orm_maps">AO/R/M maps</span>
+          <select id="ormMode" data-i18n-title="orm_mode_title" title="ORM = one RGB file; separate = AO + Roughness/Glossiness + Metallic">
+            <option value="packed" selected data-i18n="orm_packed">packed ORM</option>
+            <option value="split" data-i18n="orm_split">separate (roughness)</option>
+            <option value="split_gloss" data-i18n="orm_split_gloss">separate (glossiness)</option>
+          </select>
+        </label>
       </div>
-      <label class="chk"><input id="embedTextures" type="checkbox"> wbuduj tekstury do FBX</label>
+    </section>
+
+    <section>
+      <h2>Export</h2>
+      <div id="formatsRow">
+        <label class="chk"><input id="exportFbx" type="checkbox" checked> FBX</label>
+        <label class="chk"><input id="exportGlb" type="checkbox" checked> GLB</label>
+        <label class="chk"><input id="exportObj" type="checkbox"> OBJ</label>
+      </div>
+      <label class="chk"><input id="perLodFbx" type="checkbox"> FBX per LOD</label>
+      <label class="chk"><input id="embedTextures" type="checkbox"> <span data-i18n="embed_tex">embed textures into FBX</span></label>
     </section>
 
     <section>
@@ -120,15 +141,16 @@
         <option value="rough">Roughness</option>
         <option value="metal">Metallic</option>
         <option value="opacity">Opacity</option>
-        <option value="checker">UV checker (po bake)</option>
-        <option value="checker2">UV checker (oryginalne)</option>
-        <option value="uvflat">UV flat (po bake)</option>
-        <option value="uvflat2">UV flat (oryginalne)</option>
+        <option value="checker" data-i18n="uv_checker_baked">UV checker (baked)</option>
+        <option value="checker2" data-i18n="uv_checker_orig">UV checker (original)</option>
+        <option value="uvflat" data-i18n="uv_flat_baked">UV flat (baked)</option>
+        <option value="uvflat2" data-i18n="uv_flat_orig">UV flat (original)</option>
       </select>
-      <label class="chk" title="konwencja normal mapy w podgladzie">
+      <label class="chk" data-i18n-title="normal_dx_title" title="normal map convention in preview">
         <input id="normalDx" type="checkbox" checked> normal: DirectX
       </label>
     </div>
+    <img id="mascot" src="mascot.png" alt="">
 
     <div id="maps" class="hudbox">
       <div class="slotrow">
@@ -143,7 +165,7 @@
         <div class="slot" data-slot="rough"><span>Roughness</span><canvas width="48" height="48"></canvas></div>
         <div class="slot" data-slot="metal"><span>Metallic</span><canvas width="48" height="48"></canvas></div>
         <div class="slot" data-slot="gloss"><span>Glossiness</span><canvas width="48" height="48"></canvas></div>
-        <div class="hint">packed ORM albo mapy osobno; gloss = odwrocony rough. drag&amp;drop PNG/JPG</div>
+        <div class="hint" data-i18n="maps_hint">packed ORM or separate maps; gloss = inverted rough. drag&amp;drop PNG/JPG</div>
       </div>
     </div>
   </main>

@@ -41,6 +41,10 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--cage-offset", type=float, default=0.0,
                     help="raycast: inflacja cage w metrach (0 = auto 1%% diag)")
     pr.add_argument("--tga", action="store_true", help="tekstury TGA zamiast PNG")
+    pr.add_argument("--split-orm", action="store_true",
+                    help="AO/Roughness/Metallic osobno zamiast jednego ORM")
+    pr.add_argument("--gloss", action="store_true",
+                    help="przy --split-orm: glossiness zamiast roughness")
     pr.add_argument("--normal-gl", action="store_true",
                     help="zapisz normal mape w konwencji OpenGL "
                          "(default: DirectX)")
@@ -50,7 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="dodatkowo kazdy LOD osobnym plikiem SM_*_LODn.fbx")
     pr.add_argument("--embed-textures", action="store_true",
                     help="wbuduj tekstury do pliku FBX")
+    pr.add_argument("--no-fbx", action="store_true", help="bez exportu FBX")
     pr.add_argument("--no-glb", action="store_true", help="bez exportu GLB")
+    pr.add_argument("--obj", action="store_true",
+                    help="dodatkowo export OBJ (per LOD + wspolny MTL)")
     pr.add_argument("--up", default="auto", choices=["auto", "y", "z"],
                     help="orientacja zrodla: auto (z pliku), y (Maya/Unity), "
                          "z (UE/3ds Max)")
@@ -106,9 +113,13 @@ def run_process(args) -> int:
         input_normal_directx=not args.input_normal_gl,
         output_normal_directx=not args.normal_gl,
         texture_format="tga" if args.tga else "png",
+        orm_split=args.split_orm,
+        output_gloss=args.gloss,
         fbx_per_lod=args.per_lod_fbx,
         fbx_embed_textures=args.embed_textures,
+        export_fbx=not args.no_fbx,
         export_glb=not args.no_glb,
+        export_obj=args.obj,
         up_axis=args.up,
     )
     files = _collect_inputs(args.input)

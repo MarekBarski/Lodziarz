@@ -38,6 +38,7 @@ exe = EXE(
     a.datas,
     [],
     name="Lodziarz",
+    icon="UI/lodziarz.ico",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

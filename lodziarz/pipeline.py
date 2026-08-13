@@ -38,9 +38,15 @@ class ProcessOptions:
     input_normal_directx: bool = True    # wejsciowe normalki DX (flip G przy bake)
     output_normal_directx: bool = True   # zapis normalki jako DX
     texture_format: str = "png"          # png | tga
+    orm_split: bool = False              # AO/Roughness/Metallic osobno zamiast ORM
+    output_gloss: bool = False           # przy orm_split: glossiness zamiast roughness
     fbx_per_lod: bool = False            # dodatkowo osobne pliki SM_*_LODn.fbx
     fbx_embed_textures: bool = False     # tekstury wbudowane w FBX
+    # formaty wyjscia wg wyboru uzytkownika (viewer i tak dostaje swoj
+    # podglad GLB w debug/, niezaleznie od tych flag)
+    export_fbx: bool = True
     export_glb: bool = True
+    export_obj: bool = False
 
 
 @dataclass
@@ -50,6 +56,7 @@ class ProcessResult:
     out_dir: str = ""
     fbx: str = ""
     fbx_per_lod: list = field(default_factory=list)
+    obj: list = field(default_factory=list)
     glb: str = ""
     preview_glb: str = ""   # GLB z oboma wariantami per LOD (viewer)
     textures: dict = field(default_factory=dict)
@@ -129,7 +136,8 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
         log.progress(55, "zapis tekstur")
         texture_files = save_textures(
             baked_images, asset.name, out_dir, opts.texture_format,
-            normal_directx=opts.output_normal_directx, log=log)
+            normal_directx=opts.output_normal_directx,
+            orm_split=opts.orm_split, gloss=opts.output_gloss, log=log)
         save_debug(bake_res, asset.name, out_dir, log)
 
     # 2 sety LOD-ow: z atlasem (z unwrapped LOD0) i oryginalny — maska
@@ -162,38 +170,48 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
     result.lod_stats = [{"tris": int(m.triangle_count),
                          "verts": int(m.vertex_count)} for m in lods]
 
-    log.progress(75, "export FBX")
-    fbx_path = out_dir / f"{asset.name}.fbx"
-    export_fbx_lodgroup(chain, fbx_path, texture_files, log,
-                        embed=opts.fbx_embed_textures)
-    result.fbx = fbx_path.name
+    if opts.export_fbx:
+        log.progress(75, "export FBX")
+        fbx_path = out_dir / f"{asset.name}.fbx"
+        export_fbx_lodgroup(chain, fbx_path, texture_files, log,
+                            embed=opts.fbx_embed_textures)
+        result.fbx = fbx_path.name
 
-    if opts.fbx_per_lod:
-        log.progress(82, "export FBX per LOD")
-        paths = export_fbx_per_lod(chain, out_dir, texture_files, log,
-                                   embed=opts.fbx_embed_textures)
-        result.fbx_per_lod = [p.name for p in paths]
+        if opts.fbx_per_lod:
+            log.progress(82, "export FBX per LOD")
+            paths = export_fbx_per_lod(chain, out_dir, texture_files, log,
+                                       embed=opts.fbx_embed_textures)
+            result.fbx_per_lod = [p.name for p in paths]
 
+    if opts.export_obj:
+        log.progress(86, "export OBJ")
+        from .exporter.obj import export_obj
+        paths = export_obj(chain, out_dir, texture_files, log)
+        result.obj = [p.name for p in paths]
+
+    log.progress(90, "export GLB")
+    # normalka w GLB w konwencji wyjsciowej (spojnie z plikami tekstur
+    # i defaultem wyswietlania w viewerze)
+    glb_images = dict(baked_images)
+    if opts.output_normal_directx and glb_images.get("normal") is not None:
+        glb_images["normal"] = flip_normal_g(glb_images["normal"])
     if opts.export_glb:
-        log.progress(90, "export GLB")
-        # normalka w GLB w konwencji wyjsciowej (spojnie z plikami tekstur
-        # i defaultem wyswietlania w viewerze)
-        glb_images = dict(baked_images)
-        if opts.output_normal_directx and glb_images.get("normal") is not None:
-            glb_images["normal"] = flip_normal_g(glb_images["normal"])
         glb_path = out_dir / f"{asset.name}.glb"
         export_glb(chain, glb_path, glb_images, log)
         result.glb = glb_path.name
-        if any_baked:
-            # podglad z oboma wariantami per LOD — viewer przelacza bake
-            # per LOD na zywo; deliverable ball.glb zostaje czysty wg maski
-            dual = {"baked": baked_chain, "orig": orig_chain,
-                    "orig_materials": asset.materials}
-            dbg = out_dir / "debug"
-            dbg.mkdir(parents=True, exist_ok=True)
-            export_glb(chain, dbg / f"{asset.name}_variants.glb", glb_images,
-                       log, dual=dual)
-            result.preview_glb = f"debug/{asset.name}_variants.glb"
+    # podglad dla viewera — zawsze, niezaleznie od formatow wyjscia;
+    # przy bake oba warianty per LOD (przelacznik w viewerze)
+    dbg = out_dir / "debug"
+    dbg.mkdir(parents=True, exist_ok=True)
+    if any_baked:
+        dual = {"baked": baked_chain, "orig": orig_chain,
+                "orig_materials": asset.materials}
+        export_glb(chain, dbg / f"{asset.name}_variants.glb", glb_images,
+                   log, dual=dual)
+        result.preview_glb = f"debug/{asset.name}_variants.glb"
+    else:
+        export_glb(chain, dbg / f"{asset.name}_preview.glb", glb_images, log)
+        result.preview_glb = f"debug/{asset.name}_preview.glb"
 
     if any_baked:
         # cache do re-exportu FBX/GLB z inna maska bez ponownego bake
@@ -202,7 +220,9 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
         save_cache(out_dir / cache_name, asset_name=asset.name,
                    baked_lods=baked_chain, orig_lods=orig_chain,
                    materials=asset.materials, texture_files=texture_files,
-                   embed=opts.fbx_embed_textures, per_lod=opts.fbx_per_lod)
+                   embed=opts.fbx_embed_textures, per_lod=opts.fbx_per_lod,
+                   formats={"fbx": opts.export_fbx, "glb": opts.export_glb,
+                            "obj": opts.export_obj})
         result.cache = cache_name
 
     result.baked_mask = list(mask)

@@ -251,9 +251,13 @@ class Handler(BaseHTTPRequestHandler):
                 input_normal_directx=bool(p.get("inputNormalDx", True)),
                 output_normal_directx=bool(p.get("outputNormalDx", True)),
                 texture_format=str(p.get("texFormat", "png")),
+                orm_split=str(p.get("ormMode", "packed")) != "packed",
+                output_gloss=str(p.get("ormMode", "packed")) == "split_gloss",
                 fbx_per_lod=bool(p.get("perLodFbx", False)),
                 fbx_embed_textures=bool(p.get("embedTextures", False)),
-                export_glb=True,  # viewer potrzebuje GLB
+                export_fbx=bool(p.get("exportFbx", True)),
+                export_glb=bool(p.get("exportGlb", True)),
+                export_obj=bool(p.get("exportObj", False)),
                 up_axis=str(p.get("up", "auto")),
                 material_textures=dict(STATE.material_textures)
                     if STATE.material_textures
@@ -342,30 +346,63 @@ class Handler(BaseHTTPRequestHandler):
                                  materials=materials, baked=mask,
                                  baked_material_index=baked_idx)
 
-                log.progress(40, "export FBX")
-                fbx_path = out_root / f"{name}.fbx"
-                export_fbx_lodgroup(chain, fbx_path, data["texture_files"],
-                                    log, embed=data.get("embed", False))
-                result.update(ok=True, fbx=fbx_path.name,
-                              baked_mask=list(mask))
-                if data.get("per_lod"):
-                    log.progress(60, "export FBX per LOD")
-                    paths = export_fbx_per_lod(chain, out_root,
-                                               data["texture_files"], log,
-                                               embed=data.get("embed", False))
-                    result["fbx_per_lod"] = [pp.name for pp in paths]
+                formats = data.get("formats",
+                                   {"fbx": True, "glb": True, "obj": False})
+                result.update(ok=True, baked_mask=list(mask))
+                if formats.get("fbx", True):
+                    log.progress(40, "export FBX")
+                    fbx_path = out_root / f"{name}.fbx"
+                    export_fbx_lodgroup(chain, fbx_path,
+                                        data["texture_files"], log,
+                                        embed=data.get("embed", False))
+                    result["fbx"] = fbx_path.name
+                    if data.get("per_lod"):
+                        log.progress(55, "export FBX per LOD")
+                        paths = export_fbx_per_lod(
+                            chain, out_root, data["texture_files"], log,
+                            embed=data.get("embed", False))
+                        result["fbx_per_lod"] = [pp.name for pp in paths]
 
-                # GLB wg nowej maski — tekstury atlasu z plikow na dysku
-                # (juz w konwencji wyjsciowej)
-                log.progress(80, "export GLB")
-                images = {}
-                for key, fname in data["texture_files"].items():
-                    fpath = out_root / fname
-                    if fpath.is_file():
-                        images[key] = Image.open(fpath)
-                glb_path = out_root / f"{name}.glb"
-                export_glb(chain, glb_path, images, log)
-                result["glb"] = glb_path.name
+                if formats.get("obj", False):
+                    log.progress(70, "export OBJ")
+                    from ..exporter.obj import export_obj
+                    paths = export_obj(chain, out_root,
+                                       data["texture_files"], log)
+                    result["obj"] = [pp.name for pp in paths]
+
+                if formats.get("glb", True):
+                    # tekstury atlasu z plikow na dysku (konwencja wyjsciowa)
+                    log.progress(80, "export GLB")
+                    images = {}
+                    for key, fname in data["texture_files"].items():
+                        fpath = out_root / fname
+                        if fpath.is_file():
+                            images[key] = Image.open(fpath)
+                    if "orm" not in images and \
+                            any(k in images for k in ("ao", "roughness",
+                                                      "glossiness", "metallic")):
+                        # mapy byly zapisane osobno — spakuj z powrotem do ORM
+                        ref = next(images[k] for k in ("ao", "roughness",
+                                                       "glossiness", "metallic")
+                                   if k in images)
+                        size = ref.size
+                        orm = np.zeros((size[1], size[0], 3), dtype=np.uint8)
+                        orm[:, :, 0] = np.asarray(
+                            images["ao"].convert("L").resize(size)) \
+                            if "ao" in images else 255
+                        if "roughness" in images:
+                            orm[:, :, 1] = np.asarray(
+                                images["roughness"].convert("L").resize(size))
+                        elif "glossiness" in images:
+                            orm[:, :, 1] = 255 - np.asarray(
+                                images["glossiness"].convert("L").resize(size))
+                        if "metallic" in images:
+                            orm[:, :, 2] = np.asarray(
+                                images["metallic"].convert("L").resize(size))
+                        images["orm"] = Image.fromarray(orm, "RGB")
+                    glb_path = out_root / f"{name}.glb"
+                    export_glb(chain, glb_path, images, log)
+                    result["glb"] = glb_path.name
 
                 # manifest — zapis nowej maski
                 manifest = out_root / f"{name}.lodziarz.json"

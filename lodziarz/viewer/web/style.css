@@ -12,7 +12,14 @@ body {
   background: #1d2026; border-right: 1px solid #2a2e36;
   overflow-y: auto;
 }
-#panel h1 { font-size: 17px; margin-bottom: 10px; color: #fff; }
+#panel h1 { margin-bottom: 10px; display: flex; align-items: flex-start; gap: 8px; }
+#panel h1 #logo { flex: 1; min-width: 0; max-width: 230px; display: block; }
+#langRow { display: flex; gap: 2px; }
+#langRow button {
+  padding: 2px 7px; font-size: 10px; color: #8b93a1;
+  background: transparent; border: 1px solid #3a4150; border-radius: 4px;
+}
+#langRow button.active { color: #fff; border-color: #2f6fed; background: #2f6fed; }
 #panel h2 {
   font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
   color: #8b93a1; margin: 14px 0 6px;
@@ -98,6 +105,19 @@ button.primary:disabled { background: #333945; border-color: #333945; color: #77
   display: flex; gap: 10px; align-items: center;
 }
 #viewBar select { width: auto; }
+#mascot {
+  position: absolute; top: 64px; right: 12px;
+  width: 110px; pointer-events: none; user-select: none;
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.45));
+}
+#formatsRow { display: flex; gap: 14px; }
+#slotZoom {
+  display: none; position: fixed; z-index: 50;
+  width: 512px; height: 512px;
+  border: 1px solid #3a4150; border-radius: 8px;
+  background: #101216; box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+  pointer-events: none;
+}
 #maps {
   position: absolute; bottom: 12px; right: 12px;
   display: flex; flex-direction: column; gap: 8px;

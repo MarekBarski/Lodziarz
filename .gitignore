@@ -15,3 +15,5 @@ testout/
 
 # archiwa third-party (rozpakowane zrodla zostaja w repo)
 third_party/*.zip
+
+testdata/SM_Exibitionv53_NoTent.glb

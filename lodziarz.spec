@@ -10,6 +10,11 @@ a = Analysis(
     binaries=[
         ("lodziarz/bin/fbx_writer.exe", "lodziarz/bin"),
         ("lodziarz/bin/meshoptimizer.dll", "lodziarz/bin"),
+        # VC++ runtime obok fbx_writer.exe — na cudzym kompie moze nie byc
+        # zainstalowanego redistributable (DLL search: katalog exe najpierw)
+        ("C:/Windows/System32/msvcp140.dll", "lodziarz/bin"),
+        ("C:/Windows/System32/vcruntime140.dll", "lodziarz/bin"),
+        ("C:/Windows/System32/vcruntime140_1.dll", "lodziarz/bin"),
     ],
     datas=[
         ("lodziarz/viewer/web", "lodziarz/viewer/web"),

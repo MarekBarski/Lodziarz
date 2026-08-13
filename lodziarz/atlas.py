@@ -89,9 +89,11 @@ def texel_density_hint(baked_mesh: MeshData, old_uvs: np.ndarray,
         ratio = src_tx / new_tx
         worst = max(worst, ratio)
         if ratio > 2.0:
-            log.warn(f"material '{mat.name}': zrodlo ma ~{ratio:.1f}x wiecej "
-                     f"texeli niz atlas (tiling/duze tekstury) — detal "
-                     f"normalki i koloru bedzie zmiekczony")
+            lin = float(np.sqrt(ratio))
+            log.warn(f"material '{mat.name}': w atlasie dostaje ~{lin:.1f}x "
+                     f"mniejsza rozdzielczosc niz w zrodle (tiling UV / "
+                     f"duze tekstury) — detal normalki i koloru bedzie "
+                     f"zmiekczony")
     if worst > 2.0:
         needed = resolution * float(np.sqrt(worst))
         pow2 = 2 ** int(np.ceil(np.log2(needed)))

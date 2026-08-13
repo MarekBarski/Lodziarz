@@ -13,7 +13,7 @@ from .bake import BakeOptions, get_backend
 from .core import LodChain, MaterialData
 from .exporter.fbx import export_fbx_lodgroup, export_fbx_per_lod
 from .exporter.glb import export_glb
-from .exporter.textures import save_debug, save_textures
+from .exporter.textures import flip_normal_g, save_debug, save_textures
 from .importer import load_asset
 from .lod import build_lod_chain
 from .logutil import PipelineLog
@@ -51,6 +51,7 @@ class ProcessResult:
     fbx: str = ""
     fbx_per_lod: list = field(default_factory=list)
     glb: str = ""
+    preview_glb: str = ""   # GLB z oboma wariantami per LOD (viewer)
     textures: dict = field(default_factory=dict)
     lod_stats: list = field(default_factory=list)  # [{tris, verts}, ...]
     baked_mask: list = field(default_factory=list)  # bake per LOD (bool)
@@ -175,29 +176,33 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
 
     if opts.export_glb:
         log.progress(90, "export GLB")
+        # normalka w GLB w konwencji wyjsciowej (spojnie z plikami tekstur
+        # i defaultem wyswietlania w viewerze)
+        glb_images = dict(baked_images)
+        if opts.output_normal_directx and glb_images.get("normal") is not None:
+            glb_images["normal"] = flip_normal_g(glb_images["normal"])
         glb_path = out_dir / f"{asset.name}.glb"
-        dual = None
+        export_glb(chain, glb_path, glb_images, log)
+        result.glb = glb_path.name
         if any_baked:
-            # oba warianty per LOD — viewer przelacza bake per LOD na zywo
+            # podglad z oboma wariantami per LOD — viewer przelacza bake
+            # per LOD na zywo; deliverable ball.glb zostaje czysty wg maski
             dual = {"baked": baked_chain, "orig": orig_chain,
                     "orig_materials": asset.materials}
-        export_glb(chain, glb_path, baked_images, log, dual=dual)
-        result.glb = glb_path.name
+            dbg = out_dir / "debug"
+            dbg.mkdir(parents=True, exist_ok=True)
+            export_glb(chain, dbg / f"{asset.name}_variants.glb", glb_images,
+                       log, dual=dual)
+            result.preview_glb = f"debug/{asset.name}_variants.glb"
 
     if any_baked:
-        # cache do re-exportu FBX z inna maska bez ponownego bake
-        import pickle
+        # cache do re-exportu FBX/GLB z inna maska bez ponownego bake
+        from .cache import save_cache
         cache_name = f"{asset.name}.lodziarz_cache.pkl"
-        with open(out_dir / cache_name, "wb") as f:
-            pickle.dump({
-                "asset_name": asset.name,
-                "baked_lods": baked_chain,
-                "orig_lods": orig_chain,
-                "material_names": [m.name for m in asset.materials],
-                "texture_files": texture_files,
-                "embed": opts.fbx_embed_textures,
-                "per_lod": opts.fbx_per_lod,
-            }, f)
+        save_cache(out_dir / cache_name, asset_name=asset.name,
+                   baked_lods=baked_chain, orig_lods=orig_chain,
+                   materials=asset.materials, texture_files=texture_files,
+                   embed=opts.fbx_embed_textures, per_lod=opts.fbx_per_lod)
         result.cache = cache_name
 
     result.baked_mask = list(mask)

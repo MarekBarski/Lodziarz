@@ -301,22 +301,23 @@ class Handler(BaseHTTPRequestHandler):
             log = STATE.log
             result: dict = {"kind": "reexport", "ok": False}
             try:
-                import pickle
-
                 import numpy as np
+                from PIL import Image
 
+                from ..cache import load_cache
                 from ..core import LodChain, MaterialData
                 from ..exporter.fbx import (export_fbx_lodgroup,
                                             export_fbx_per_lod)
+                from ..exporter.glb import export_glb
                 log.progress(10, "wczytywanie cache")
-                with open(cache_path, "rb") as f:
-                    data = pickle.load(f)
+                data = load_cache(cache_path)
                 baked_lods = data["baked_lods"]
                 orig_lods = data["orig_lods"]
+                orig_materials = data["materials"]
                 count = len(baked_lods)
                 mask = (mask_req + [False] * count)[:count]
                 name = data["asset_name"]
-                log.info("re-export FBX, bake dla: "
+                log.info("re-export, bake dla: "
                          + (", ".join(f"LOD{i}" for i, b in enumerate(mask) if b)
                             or "—"))
 
@@ -324,13 +325,11 @@ class Handler(BaseHTTPRequestHandler):
                     materials = [MaterialData(name=f"M_{name}")]
                     baked_idx = 0
                 elif any(mask):
-                    materials = [MaterialData(name=n)
-                                 for n in data["material_names"]]
+                    materials = list(orig_materials)
                     baked_idx = len(materials)
                     materials.append(MaterialData(name=f"M_{name}"))
                 else:
-                    materials = [MaterialData(name=n)
-                                 for n in data["material_names"]]
+                    materials = list(orig_materials)
                     baked_idx = None
                 lods = []
                 for i in range(count):
@@ -342,6 +341,7 @@ class Handler(BaseHTTPRequestHandler):
                 chain = LodChain(asset_name=name, lods=lods,
                                  materials=materials, baked=mask,
                                  baked_material_index=baked_idx)
+
                 log.progress(40, "export FBX")
                 fbx_path = out_root / f"{name}.fbx"
                 export_fbx_lodgroup(chain, fbx_path, data["texture_files"],
@@ -349,11 +349,34 @@ class Handler(BaseHTTPRequestHandler):
                 result.update(ok=True, fbx=fbx_path.name,
                               baked_mask=list(mask))
                 if data.get("per_lod"):
-                    log.progress(70, "export FBX per LOD")
+                    log.progress(60, "export FBX per LOD")
                     paths = export_fbx_per_lod(chain, out_root,
                                                data["texture_files"], log,
                                                embed=data.get("embed", False))
                     result["fbx_per_lod"] = [pp.name for pp in paths]
+
+                # GLB wg nowej maski — tekstury atlasu z plikow na dysku
+                # (juz w konwencji wyjsciowej)
+                log.progress(80, "export GLB")
+                images = {}
+                for key, fname in data["texture_files"].items():
+                    fpath = out_root / fname
+                    if fpath.is_file():
+                        images[key] = Image.open(fpath)
+                glb_path = out_root / f"{name}.glb"
+                export_glb(chain, glb_path, images, log)
+                result["glb"] = glb_path.name
+
+                # manifest — zapis nowej maski
+                manifest = out_root / f"{name}.lodziarz.json"
+                if manifest.is_file():
+                    try:
+                        mdata = json.loads(manifest.read_text(encoding="utf-8"))
+                        mdata["baked_mask"] = list(mask)
+                        manifest.write_text(json.dumps(mdata, indent=2),
+                                            encoding="utf-8")
+                    except (json.JSONDecodeError, OSError):
+                        pass
                 log.progress(100, "gotowe")
             except Exception as e:
                 log.error(f"{type(e).__name__}: {e}")

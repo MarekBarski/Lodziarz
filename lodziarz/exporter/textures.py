@@ -17,6 +17,13 @@ SUFFIX = {
 }
 
 
+def flip_normal_g(img: Image.Image) -> Image.Image:
+    """OpenGL <-> DirectX (inwersja kanalu G)."""
+    arr = np.asarray(img.convert("RGB")).copy()
+    arr[:, :, 1] = 255 - arr[:, :, 1]
+    return Image.fromarray(arr, "RGB")
+
+
 def save_textures(images: dict, asset_name: str, out_dir: Path,
                   fmt: str = "png", normal_directx: bool = False,
                   log: PipelineLog | None = None) -> dict:
@@ -30,9 +37,7 @@ def save_textures(images: dict, asset_name: str, out_dir: Path,
         if img is None:
             continue
         if key == "normal" and normal_directx:
-            arr = np.asarray(img.convert("RGB")).copy()
-            arr[:, :, 1] = 255 - arr[:, :, 1]  # flip G: OpenGL -> DirectX
-            img = Image.fromarray(arr, "RGB")
+            img = flip_normal_g(img)   # OpenGL -> DirectX
         fname = f"T_{asset_name}_{SUFFIX.get(key, key)}.{fmt}"
         img.save(out_dir / fname)
         files[key] = fname

@@ -672,7 +672,9 @@ async function poll() {
       Object.keys(slotTextures).forEach((k) => (slotTextures[k] = null));
       bakeMask = (p.result.baked_mask || []).map(Boolean);
       lastCache = p.result.cache || "";
-      loadModel("/out/" + encodeURIComponent(p.result.glb) + "?t=" + Date.now());
+      // preview z wariantami (bake przelaczalny); ball.glb = czysty export
+      const glb = p.result.preview_glb || p.result.glb;
+      loadModel("/out/" + encodeURIComponent(glb) + "?t=" + Date.now());
     } else if (p.result.kind === "reexport") {
       const btn = document.getElementById("reexportBtn");
       if (btn) btn.disabled = false;

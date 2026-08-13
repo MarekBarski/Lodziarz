@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .atlas import unwrap_atlas
+from .atlas import texel_density_hint, unwrap_atlas
 from .bake import BakeOptions, get_backend
 from .core import LodChain, MaterialData
 from .exporter.fbx import export_fbx_lodgroup, export_fbx_per_lod
@@ -120,6 +120,8 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
         log.progress(15, "unwrap UV (xatlas)")
         baked_mesh, old_uvs = unwrap_atlas(asset.mesh, opts.atlas_resolution,
                                            max(2, opts.dilation // 2), log)
+        texel_density_hint(baked_mesh, old_uvs, asset.materials,
+                           opts.atlas_resolution, log)
         log.progress(35, f"bake ({opts.bake_backend})")
         backend = get_backend(opts.bake_backend)
         # source: oryginalna siatka — material per texel per pixel

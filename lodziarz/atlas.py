@@ -53,6 +53,56 @@ def unwrap_atlas(
     return out, old_uvs
 
 
+def texel_density_hint(baked_mesh: MeshData, old_uvs: np.ndarray,
+                       materials: list, resolution: int,
+                       log: PipelineLog) -> None:
+    """Porownanie gestosci texeli: zrodlo (stare UV x rozmiar tekstur,
+    z tilingiem) vs atlas. Tiled materialy potrafia miec efektywnie
+    kilkukrotnie wiecej pikseli niz atlas — bez ostrzezenia bake wyglada
+    na 'zepsuty' (rozmyta normalka/basecolor)."""
+
+    def tri_areas(uvs: np.ndarray) -> np.ndarray:
+        a = uvs[baked_mesh.indices[:, 0].astype(np.int64)]
+        b = uvs[baked_mesh.indices[:, 1].astype(np.int64)]
+        c = uvs[baked_mesh.indices[:, 2].astype(np.int64)]
+        return 0.5 * np.abs((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1])
+                            - (c[:, 0] - a[:, 0]) * (b[:, 1] - a[:, 1]))
+
+    src_area = tri_areas(old_uvs)
+    new_area = tri_areas(baked_mesh.uvs)
+    worst = 0.0
+    for mid, mat in enumerate(materials):
+        sel = baked_mesh.tri_material == mid
+        if not sel.any():
+            continue
+        sizes = [t.size for t in (mat.base_color_tex, mat.normal_tex,
+                                  mat.occlusion_tex, mat.roughness_tex,
+                                  mat.metallic_tex) if t is not None]
+        if not sizes:
+            continue
+        tw = max(s[0] for s in sizes)
+        th = max(s[1] for s in sizes)
+        src_tx = float(src_area[sel].sum()) * tw * th
+        new_tx = float(new_area[sel].sum()) * resolution * resolution
+        if new_tx <= 0 or src_tx <= 0:
+            continue
+        ratio = src_tx / new_tx
+        worst = max(worst, ratio)
+        if ratio > 2.0:
+            log.warn(f"material '{mat.name}': zrodlo ma ~{ratio:.1f}x wiecej "
+                     f"texeli niz atlas (tiling/duze tekstury) — detal "
+                     f"normalki i koloru bedzie zmiekczony")
+    if worst > 2.0:
+        needed = resolution * float(np.sqrt(worst))
+        pow2 = 2 ** int(np.ceil(np.log2(needed)))
+        if pow2 <= 4096:
+            log.warn(f"sugerowany atlas dla pelnego detalu: {pow2} px "
+                     f"(teraz {resolution})")
+        else:
+            log.warn(f"pelny detal wymagalby atlasu ~{pow2} px — uzyj 4096 "
+                     f"albo podziel asset na czesci (teraz {resolution})")
+
+
 def _carry_tri_material(mesh: MeshData, vmapping: np.ndarray,
                         new_indices: np.ndarray, log: PipelineLog) -> np.ndarray:
     """Material per trojkat po unwrap — bez glosowania, mapowanie exact."""

@@ -53,6 +53,8 @@ class ProcessResult:
     glb: str = ""
     textures: dict = field(default_factory=dict)
     lod_stats: list = field(default_factory=list)  # [{tris, verts}, ...]
+    baked_mask: list = field(default_factory=list)  # bake per LOD (bool)
+    cache: str = ""     # plik cache do re-exportu FBX z inna maska
     error: str = ""
 
 
@@ -130,16 +132,15 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
         save_debug(bake_res, asset.name, out_dir, log)
 
     # 2 sety LOD-ow: z atlasem (z unwrapped LOD0) i oryginalny — maska
-    # per LOD wybiera, ktory set trafia do wyjscia
+    # per LOD wybiera, ktory set trafia do wyjscia; oba sety ida do GLB,
+    # wiec w viewerze mozna przelaczac bake per LOD juz po operacji
     log.progress(60, f"LOD-y ({count}, ratio {opts.lod_ratio})")
     baked_chain = None
     if any_baked:
         baked_chain = build_lod_chain(baked_mesh, count=count,
                                       ratio=opts.lod_ratio, log=log)
-    orig_chain = None
-    if not all_baked:
-        orig_chain = build_lod_chain(asset.mesh, count=count,
-                                     ratio=opts.lod_ratio, log=log)
+    orig_chain = build_lod_chain(asset.mesh, count=count,
+                                 ratio=opts.lod_ratio, log=log)
 
     if all_baked:
         materials = [MaterialData(name=f"M_{asset.name}")]
@@ -175,9 +176,31 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
     if opts.export_glb:
         log.progress(90, "export GLB")
         glb_path = out_dir / f"{asset.name}.glb"
-        export_glb(chain, glb_path, baked_images, log)
+        dual = None
+        if any_baked:
+            # oba warianty per LOD — viewer przelacza bake per LOD na zywo
+            dual = {"baked": baked_chain, "orig": orig_chain,
+                    "orig_materials": asset.materials}
+        export_glb(chain, glb_path, baked_images, log, dual=dual)
         result.glb = glb_path.name
 
+    if any_baked:
+        # cache do re-exportu FBX z inna maska bez ponownego bake
+        import pickle
+        cache_name = f"{asset.name}.lodziarz_cache.pkl"
+        with open(out_dir / cache_name, "wb") as f:
+            pickle.dump({
+                "asset_name": asset.name,
+                "baked_lods": baked_chain,
+                "orig_lods": orig_chain,
+                "material_names": [m.name for m in asset.materials],
+                "texture_files": texture_files,
+                "embed": opts.fbx_embed_textures,
+                "per_lod": opts.fbx_per_lod,
+            }, f)
+        result.cache = cache_name
+
+    result.baked_mask = list(mask)
     result.textures = texture_files
     result.ok = True
 

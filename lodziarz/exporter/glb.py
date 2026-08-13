@@ -52,7 +52,11 @@ class _BufferBuilder:
 
 
 def export_glb(chain: LodChain, out_path: Path, images: dict,
-               log: PipelineLog) -> Path:
+               log: PipelineLog, dual: dict | None = None) -> Path:
+    """dual (opcjonalnie): {'baked': [MeshData], 'orig': [MeshData],
+    'orig_materials': [MaterialData]} — kazdy LOD dostaje wtedy OBA warianty
+    jako dzieci <Nazwa>_LODn: *_baked i *_orig; viewer przelacza widocznosc
+    per LOD na zywo (bake on/off po operacji)."""
     g = gl.GLTF2(asset=gl.Asset(version="2.0", generator="lodziarz"))
     bb = _BufferBuilder()
     g.samplers = [gl.Sampler(magFilter=9729, minFilter=9987,
@@ -62,40 +66,56 @@ def export_glb(chain: LodChain, out_path: Path, images: dict,
         else [chain.baked_material_index is not None] * len(chain.lods)
 
     baked_gltf: int | None = None
-    if any(baked) and images:
+    if (any(baked) or dual) and images:
         baked_gltf = _add_baked_material(g, bb, chain, images)
-    # materialy zrodlowe — tylko te uzywane przez nie-baked LOD-y
+
+    # materialy zrodlowe: przy dual wszystkie (warianty orig zawsze sa),
+    # bez dual tylko te uzywane przez nie-baked LOD-y
+    src_materials = dual["orig_materials"] if dual else chain.materials
     src_gltf: dict[int, int] = {}
-    for i, lod in enumerate(chain.lods):
-        if baked[i]:
-            continue
-        for mid in np.unique(lod.tri_material):
-            mid = int(mid)
-            if mid not in src_gltf and 0 <= mid < len(chain.materials):
-                src_gltf[mid] = _add_source_material(g, bb, chain.materials[mid])
+
+    def src_mat(mid: int) -> int | None:
+        if mid not in src_gltf and 0 <= mid < len(src_materials):
+            src_gltf[mid] = _add_source_material(g, bb, src_materials[mid])
+        return src_gltf.get(mid)
+
+    def baked_prims(mesh) -> list:
+        attributes = _mesh_attributes(bb, mesh)
+        idx = bb.add_array(mesh.indices.astype(np.uint32).reshape(-1, 1),
+                           5125, "SCALAR", 34963)
+        return [gl.Primitive(attributes=attributes, indices=idx,
+                             material=baked_gltf)]
+
+    def src_prims(mesh) -> list:
+        attributes = _mesh_attributes(bb, mesh)
+        prims = []
+        for mid in np.unique(mesh.tri_material):
+            sub = mesh.indices[mesh.tri_material == int(mid)]
+            idx = bb.add_array(sub.astype(np.uint32).reshape(-1, 1),
+                               5125, "SCALAR", 34963)
+            prims.append(gl.Primitive(attributes=attributes, indices=idx,
+                                      material=src_mat(int(mid))))
+        return prims
+
+    def add_mesh_node(name: str, prims: list) -> int:
+        g.meshes.append(gl.Mesh(name=name, primitives=prims))
+        g.nodes.append(gl.Node(name=name, mesh=len(g.meshes) - 1))
+        return len(g.nodes) - 1
 
     g.scene = 0
     g.scenes = [gl.Scene(nodes=[])]
-    for i, mesh in enumerate(chain.lods):
+    count = len(dual["baked"]) if dual else len(chain.lods)
+    for i in range(count):
         name = f"{chain.asset_name}_LOD{i}"
-        attributes = _mesh_attributes(bb, mesh)
-        prims = []
-        if baked[i]:
-            idx = bb.add_array(mesh.indices.astype(np.uint32).reshape(-1, 1),
-                               5125, "SCALAR", 34963)
-            prims.append(gl.Primitive(attributes=attributes, indices=idx,
-                                      material=baked_gltf))
+        if dual:
+            nb = add_mesh_node(f"{name}_baked", baked_prims(dual["baked"][i]))
+            no = add_mesh_node(f"{name}_orig", src_prims(dual["orig"][i]))
+            g.nodes.append(gl.Node(name=name, children=[nb, no]))
+            g.scenes[0].nodes.append(len(g.nodes) - 1)
         else:
-            for mid in np.unique(mesh.tri_material):
-                sub = mesh.indices[mesh.tri_material == int(mid)]
-                idx = bb.add_array(sub.astype(np.uint32).reshape(-1, 1),
-                                   5125, "SCALAR", 34963)
-                prims.append(gl.Primitive(
-                    attributes=attributes, indices=idx,
-                    material=src_gltf.get(int(mid))))
-        g.meshes.append(gl.Mesh(name=name, primitives=prims))
-        g.nodes.append(gl.Node(name=name, mesh=len(g.meshes) - 1))
-        g.scenes[0].nodes.append(len(g.nodes) - 1)
+            mesh = chain.lods[i]
+            prims = baked_prims(mesh) if baked[i] else src_prims(mesh)
+            g.scenes[0].nodes.append(add_mesh_node(name, prims))
 
     g.bufferViews = bb.views
     g.accessors = bb.accessors
@@ -104,7 +124,8 @@ def export_glb(chain: LodChain, out_path: Path, images: dict,
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     g.save_binary(str(out_path))
-    log.info(f"GLB zapisany: {out_path.name}")
+    log.info(f"GLB zapisany: {out_path.name}"
+             + (" (oba warianty per LOD)" if dual else ""))
     return out_path
 
 
@@ -181,8 +202,20 @@ def _add_source_material(g: gl.GLTF2, bb: _BufferBuilder,
     if src.normal_tex is not None:
         mat.normalTexture = gl.NormalMaterialTexture(
             index=_add_texture(g, bb, src.normal_tex))
-    pbr.roughnessFactor = float(src.roughness_factor)
-    pbr.metallicFactor = float(src.metallic_factor)
+    if any(t is not None for t in (src.occlusion_tex, src.roughness_tex,
+                                   src.metallic_tex)):
+        # spakowany ORM (faktory wliczone) — bez tego podglad materialow
+        # zrodlowych gubi metalicznosc/roughness z map
+        from ..bake.common import compose_orm
+        orm = Image.fromarray(compose_orm(src)[:, :, :3], "RGB")
+        ti = _add_texture(g, bb, orm)
+        pbr.metallicRoughnessTexture = gl.TextureInfo(index=ti)
+        mat.occlusionTexture = gl.OcclusionTextureInfo(index=ti)
+        pbr.roughnessFactor = 1.0
+        pbr.metallicFactor = 1.0
+    else:
+        pbr.roughnessFactor = float(src.roughness_factor)
+        pbr.metallicFactor = float(src.metallic_factor)
     if src.has_opacity():
         mat.alphaMode = "BLEND"
         mat.doubleSided = True

@@ -130,6 +130,8 @@ class Handler(BaseHTTPRequestHandler):
             self._api_process(payload)
         elif path == "/api/load":
             self._api_load(payload)
+        elif path == "/api/reexport":
+            self._api_reexport(payload)
         elif path == "/api/assign_texture":
             self._api_assign_texture(payload)
         elif path == "/api/dialog":
@@ -267,6 +269,97 @@ class Handler(BaseHTTPRequestHandler):
             result = run_isolated(input_path, out_dir, opts, STATE.log)
             with STATE.lock:
                 STATE.result = {"kind": "process", **asdict(result)}
+                STATE.running = False
+
+        threading.Thread(target=work, daemon=True).start()
+        self._json({"started": True})
+
+    def _api_reexport(self, p: dict):
+        """Re-export FBX z nowa maska bake per LOD — bez ponownego bake.
+
+        Czyta cache (oba sety LOD-ow) zapisany przez pipeline w folderze
+        wyjsciowym; maska z viewera wybiera set per LOD."""
+        with STATE.lock:
+            if STATE.running:
+                self._json({"error": "operacja juz trwa"}, 409)
+                return
+            if STATE.out_root is None:
+                self._json({"error": "brak wyniku procesu w tej sesji"}, 400)
+                return
+            cache_name = Path(str(p.get("cache", ""))).name  # bez sciezek
+            cache_path = STATE.out_root / cache_name
+            if not cache_name or not cache_path.is_file():
+                self._json({"error": f"brak cache: {cache_name}"}, 400)
+                return
+            mask_req = [bool(x) for x in p.get("mask", [])]
+            STATE.running = True
+            STATE.log = PipelineLog(echo=True)
+            STATE.result = None
+        out_root = STATE.out_root
+
+        def work():
+            log = STATE.log
+            result: dict = {"kind": "reexport", "ok": False}
+            try:
+                import pickle
+
+                import numpy as np
+
+                from ..core import LodChain, MaterialData
+                from ..exporter.fbx import (export_fbx_lodgroup,
+                                            export_fbx_per_lod)
+                log.progress(10, "wczytywanie cache")
+                with open(cache_path, "rb") as f:
+                    data = pickle.load(f)
+                baked_lods = data["baked_lods"]
+                orig_lods = data["orig_lods"]
+                count = len(baked_lods)
+                mask = (mask_req + [False] * count)[:count]
+                name = data["asset_name"]
+                log.info("re-export FBX, bake dla: "
+                         + (", ".join(f"LOD{i}" for i, b in enumerate(mask) if b)
+                            or "—"))
+
+                if all(mask):
+                    materials = [MaterialData(name=f"M_{name}")]
+                    baked_idx = 0
+                elif any(mask):
+                    materials = [MaterialData(name=n)
+                                 for n in data["material_names"]]
+                    baked_idx = len(materials)
+                    materials.append(MaterialData(name=f"M_{name}"))
+                else:
+                    materials = [MaterialData(name=n)
+                                 for n in data["material_names"]]
+                    baked_idx = None
+                lods = []
+                for i in range(count):
+                    m = baked_lods[i] if mask[i] else orig_lods[i]
+                    if mask[i]:
+                        m.tri_material = np.full(len(m.indices), baked_idx,
+                                                 dtype=np.int32)
+                    lods.append(m)
+                chain = LodChain(asset_name=name, lods=lods,
+                                 materials=materials, baked=mask,
+                                 baked_material_index=baked_idx)
+                log.progress(40, "export FBX")
+                fbx_path = out_root / f"{name}.fbx"
+                export_fbx_lodgroup(chain, fbx_path, data["texture_files"],
+                                    log, embed=data.get("embed", False))
+                result.update(ok=True, fbx=fbx_path.name,
+                              baked_mask=list(mask))
+                if data.get("per_lod"):
+                    log.progress(70, "export FBX per LOD")
+                    paths = export_fbx_per_lod(chain, out_root,
+                                               data["texture_files"], log,
+                                               embed=data.get("embed", False))
+                    result["fbx_per_lod"] = [pp.name for pp in paths]
+                log.progress(100, "gotowe")
+            except Exception as e:
+                log.error(f"{type(e).__name__}: {e}")
+                result["error"] = str(e)
+            with STATE.lock:
+                STATE.result = result
                 STATE.running = False
 
         threading.Thread(target=work, daemon=True).start()

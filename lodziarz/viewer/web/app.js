@@ -38,8 +38,12 @@ renderer.setAnimationLoop(() => { resize(); controls.update(); renderer.render(s
 
 // ------------------------------------------------------------ stan modelu
 let modelRoot = null;
-let lodNodes = [];          // [{node, tris, verts}]
+let lodNodes = [];          // [{node, tris, verts, variants?}]
+// variants: {baked: {node,tris,verts}, orig: {node,tris,verts}} gdy GLB
+// ma oba warianty per LOD (bake przelaczalny po operacji)
 let activeLod = 0;
+let bakeMask = [];          // bake on/off per LOD (tylko przy variants)
+let lastCache = "";         // plik cache do re-exportu FBX
 let viewMode = "lit";
 const slotTextures = { basecolor: null, normal: null, orm: null, emissive: null,
                        opacity: null, ao: null, rough: null, metal: null, gloss: null };
@@ -163,11 +167,70 @@ function logOnce(msg) {
 function setLod(i) {
   activeLod = Math.max(0, Math.min(lodNodes.length - 1, i));
   lodNodes.forEach((l, k) => { l.node.visible = k === activeLod; });
+  applyBakeMask();
   document.querySelectorAll("#lodBar button").forEach((b, k) =>
     b.classList.toggle("active", k === activeLod));
   const l = lodNodes[activeLod];
+  let src = l;
+  if (l && l.variants)
+    src = bakeMask[activeLod] ? l.variants.baked : l.variants.orig;
   document.getElementById("stats").innerHTML =
-    l ? `LOD${activeLod} &nbsp; tri: ${l.tris.toLocaleString()} &nbsp; verts: ${l.verts.toLocaleString()}` : "tri: — verts: —";
+    src ? `LOD${activeLod} &nbsp; tri: ${src.tris.toLocaleString()} &nbsp; verts: ${src.verts.toLocaleString()}` : "tri: — verts: —";
+}
+
+// widocznosc wariantow baked/orig wg maski (per LOD)
+function applyBakeMask() {
+  lodNodes.forEach((l, i) => {
+    if (!l.variants) return;
+    l.variants.baked.node.visible = !!bakeMask[i];
+    l.variants.orig.node.visible = !bakeMask[i];
+  });
+}
+
+function rebuildBakeBar() {
+  const bar = document.getElementById("bakeBar");
+  bar.innerHTML = "";
+  const has = lodNodes.some((l) => l.variants);
+  bar.style.display = has ? "" : "none";
+  if (!has) return;
+  const title = document.createElement("span");
+  title.textContent = "bake:";
+  bar.appendChild(title);
+  lodNodes.forEach((l, i) => {
+    if (!l.variants) return;
+    const lab = document.createElement("label");
+    lab.className = "chk";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = !!bakeMask[i];
+    cb.onchange = () => {
+      bakeMask[i] = cb.checked;
+      applyBakeMask();
+      setLod(activeLod);   // odswiez statystyki
+      refreshSlotThumbs();
+    };
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode("LOD" + i));
+    bar.appendChild(lab);
+  });
+  const btn = document.createElement("button");
+  btn.id = "reexportBtn";
+  btn.textContent = "Re-export FBX";
+  btn.onclick = reexportFbx;
+  bar.appendChild(btn);
+}
+
+async function reexportFbx() {
+  if (!lastCache) { logLine("WARN brak cache do re-exportu", "warn"); return; }
+  const r = await fetch("/api/reexport", {
+    method: "POST",
+    body: JSON.stringify({ cache: lastCache, mask: bakeMask }),
+    headers: { "Content-Type": "application/json" },
+  }).then((r) => r.json());
+  if (r.error) { logLine("ERROR " + r.error, "err"); return; }
+  const btn = document.getElementById("reexportBtn");
+  if (btn) btn.disabled = true;
+  polling = setInterval(poll, 400);
 }
 document.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
@@ -231,6 +294,24 @@ function loadModel(url) {
       lodNodes = [{ node: modelRoot, ...c }];
     }
 
+    // warianty baked/orig per LOD (GLB z przelaczalnym bake po operacji)
+    let anyVariants = false;
+    lodNodes.forEach((l) => {
+      let baked = null, orig = null;
+      l.node.traverse((o) => {
+        if (/_baked$/.test(o.name || "")) baked = o;
+        if (/_orig$/.test(o.name || "")) orig = o;
+      });
+      if (baked && orig) {
+        anyVariants = true;
+        l.variants = { baked: { node: baked, ...countGeo(baked) },
+                       orig: { node: orig, ...countGeo(orig) } };
+      }
+    });
+    if (anyVariants && bakeMask.length !== lodNodes.length)
+      bakeMask = lodNodes.map((_, i) => i > 0);   // default jak pipeline
+    if (!anyVariants) bakeMask = [];
+
     modelRoot.traverse((o) => {
       if (o.isMesh) {
         if (!(o.material && o.material.isMeshStandardMaterial))
@@ -252,6 +333,7 @@ function loadModel(url) {
     grid.position.y = box.min.y;
 
     rebuildLodBar();
+    rebuildBakeBar();
     setLod(0);
     refreshSlotThumbs();
     applyViewMode();
@@ -588,7 +670,14 @@ async function poll() {
       loadModel(p.result.preview + "?t=" + Date.now());
     } else if (p.result.kind === "process" && p.result.ok && p.result.glb) {
       Object.keys(slotTextures).forEach((k) => (slotTextures[k] = null));
+      bakeMask = (p.result.baked_mask || []).map(Boolean);
+      lastCache = p.result.cache || "";
       loadModel("/out/" + encodeURIComponent(p.result.glb) + "?t=" + Date.now());
+    } else if (p.result.kind === "reexport") {
+      const btn = document.getElementById("reexportBtn");
+      if (btn) btn.disabled = false;
+      if (p.result.ok)
+        logLine("INFO FBX wyeksportowany z nowa maska: " + p.result.fbx);
     }
   }
 }

@@ -12,8 +12,10 @@ native/build/
 # wyniki testow / tymczasowe
 testout/
 .playwright-mcp/
+.pytest_cache/
+
+# dane testowe — zostaja lokalnie na dysku, nie w repo (decyzja 2026-09-03)
+testdata/
 
 # archiwa third-party (rozpakowane zrodla zostaja w repo)
 third_party/*.zip
-
-testdata/SM_Exibitionv53_NoTent.glb

@@ -1,6 +1,8 @@
 # STATUS
 
-**Wersja:** 0.7.1 (2026-08-13) — bake per pixel, 2 sety LOD-ów, live toggle, formaty exportu
+**Wersja:** 0.8.0 (2026-09-03) — smooth-weld, progi LODGroup, opacity w FBX
+(LZMESH2), walidacja importu, raport batcha, testy pytest. Projekt wrócił
+do aktywnego rozwoju (decyzja Marka 2026-09-03).
 
 ## Architektura bake (NIE ZMIENIAĆ bez zgody Marka)
 
@@ -10,43 +12,65 @@
 - **granice materiałów per PIXEL, nigdy per trójkąt** — xatlas zachowuje
   kolejność trójkątów, tri_material przenoszony 1:1 (`atlas.py`,
   `_carry_tri_material`); ŻADNEGO głosowania/majority vote (to był bug
-  z zygzakiem, patrz LOG_2026-08-13)
+  z zygzakiem, patrz LOG_2026-08-13); pilnowane testem `test_atlas_carry.py`
 - texel backend wymaga topologii źródła (target == unwrap oryginału);
   raycast/cameras26 mają parametr `source` (projekcja, trafienia > 3× cage
   odrzucane)
+- LOD0 default oryginalny, LOD1+ baked — użytkownik decyduje maską
+  (checkboxy w GUI / `--bake-lods all` daje baked LOD0)
 
-## Nowe w 0.6.x–0.7.x
+## Nowe w 0.8.0 (2026-09-03)
 
-- **bake per LOD przełączalny po procesie**: viewer pasek "bake:" +
-  Re-export (FBX/OBJ/GLB + manifest, bez ponownego bake) z cache
-  `<nazwa>.lodziarz_cache.pkl`; podgląd `debug/<nazwa>_variants.glb`
-  (oba warianty per LOD), `<nazwa>.glb` = czysty export wg maski
-- **formaty exportu**: FBX / GLB / OBJ checkboxami (CLI `--no-fbx`/`--obj`);
-  OBJ per LOD + wspólny MTL
-- **mapy AO/R/M**: ORM spakowane albo osobno (roughness/glossiness) —
-  GUI select, CLI `--split-orm`/`--gloss`
-- **normal DirectX domyślnie** (in/out/viewer); GL: `--input-normal-gl`/`--normal-gl`
-- **texel_density_hint**: warning gdy tiling/duże tekstury dają atlasowi
-  wielokrotnie mniejszą rozdzielczość niż źródło + sugerowana rozdzielczość
-- i18n EN (default) / PL zapamiętywany; logo + maskotka (`UI/`), ikona exe
-- miniaturki AO/R/M pokazują swój kanał; hover = podgląd 512px
+- **smooth-weld** (opt-in, checkbox GUI + `--smooth-weld`): sklejanie
+  rozcięć hard edges przed simplify — odblokowuje redukcję na hard-surface;
+  klucz weld = pozycja+UV (szwy atlasu nietknięte), normale uśredniane,
+  LOD0 zawsze oryginalny
+- **progi LODGroup jako parametr** (pole GUI + `--thresholds "500,1000"`,
+  cm; auto gdy puste); progi zapamiętane w cache — re-export ich używa
+- **opacity w FBX**: format LZMESH v2 (5. slot tekstury + opacity_factor),
+  `fbx_writer.exe` podpina mapę pod TransparentColor (factor 1.0) albo sam
+  factor (1 − opacity); writer czyta v1 i v2
+- **OBJ/MTL**: `d` / `Tr` / `map_d` → opacity, `map_Bump` → normalka
+  (wcześniej gubione)
+- **walidacja importu** (`report.py`): brak UV, zdegenerowane trójkąty,
+  materiały bez trójkątów, brakujące mapy — log przy Load/Process + sekcja
+  `validation` w manifeście
+- **raport zbiorczy batcha** (`lodziarz_batch_report.json` + `.csv`) przy
+  przetwarzaniu >1 pliku
+- **cache wersjonowany** (`CACHE_VERSION = 2`): load odmawia czytania innej
+  wersji z czytelnym komunikatem zamiast pękać na starym pickle
+- **raycast + cameras26 oficjalnie wspierane** (decyzja Marka; README
+  zsynchronizowane — wcześniej kłamało, że to stuby)
+- komunikat po Re-export przez i18n i z listą faktycznie zapisanych plików
+  (wcześniej hardcoded "FBX ..." po polsku)
+- **testy pytest** (`tests/`, 12 szt.): LOD/smooth-weld, `_carry_tri_material`,
+  import OBJ/MTL/GLB, cache, integracja pipeline bez bake (FBX+GLB+manifest);
+  syntetyczna geometria, zero binarek
+- `testdata/` wyjęte z gita (decyzja Marka — testy nie siedzą w repo;
+  pliki zostają lokalnie na dysku)
 
-## Działa (zweryfikowane 2026-08-13)
+## Działa (zweryfikowane)
 
-- [x] kula `testdata/test/ball.fbx`: LOD0 == LOD1 po bake (screeny
-      `testout/claude_fix/screens/`)
-- [x] cube `testdata/test2/cube.fbx` z tilingiem 12×: OK przy atlasie 4096;
-      przy małym atlasie warning gęstości (to nie bug — fizyka atlasu)
+- [x] testy: 12/12 pytest zielone (2026-09-03)
+- [x] `fbx_writer.exe` przebudowany z LZMESH2; integracja OBJ z `d 0.3`
+      → FBX przechodzi (test_pipeline)
+- [x] kula `testdata/test/ball.fbx`: LOD0 == LOD1 po bake (2026-08-13)
+- [x] cube `testdata/test2/cube.fbx` z tilingiem 12×: OK przy atlasie 4096
 - [x] re-export z nową maską: FBX/OBJ/GLB + manifest w ~1 s
-- [x] jasność BaseColor po bake = źródło (delta < 0.6/255, zmierzone)
-- [x] import FBX/OBJ/glTF/GLB, LOD chain, FBX LODGroup (UE 5.6 potwierdzone
-      wcześniej), GLB, PNG/TGA, GUI+CLI, portable exe
+- [x] jasność BaseColor po bake = źródło (delta < 0.6/255)
+- [x] import FBX/OBJ/glTF/GLB, LOD chain, FBX LODGroup (UE 5.6), GLB,
+      PNG/TGA, GUI+CLI, portable exe
+- [ ] smooth-weld / progi / opacity FBX w GUI — czeka na wizualny werdykt
+      Marka (screeny)
 
 ## Ograniczenia
 
-- flat-shaded hard-surface słabo się redukuje (locked verts w meshopt)
+- flat-shaded hard-surface słabo się redukuje bez smooth-weld (locked verts
+  w meshopt); z smooth-weld redukuje, ale cieniowanie krawędzi mięknie
 - tiled materiały tracą detal w atlasie (matematyka, nie bug) — warning
   mówi ile i jaki atlas potrzebny
+- FBX Phong nie ma slotów PBR — ORM jedzie plikiem obok, opacity przez
+  TransparentColor
 - ufbx pitfalls — patrz pamięć agenta i LOG_2026-08-12
 
 ## Build
@@ -55,11 +79,12 @@
 `.venv\Scripts\pyinstaller.exe lodziarz.spec --noconfirm` → `dist\Lodziarz.exe`.
 **Marek testuje EXE — po zmianach w Pythonie zawsze przebudować.**
 Wymaga: FBX SDK `G:\Programing\FBXSDK\2020.3.4`, VS BuildTools 18.
+Checklista smoke po buildzie: patrz README → "Checklista smoke po buildzie EXE".
 
 ## Git
 
 GitHub: https://github.com/MarekBarski/Lodziarz (push działa).
-Duże pliki testdata: `.glb` 243 MB wycięty z historii (backup: branch
-`backup-pre-filter`), NIE commitować generowanych GLB z testdata.
+`testdata/` w całości poza repo (`.gitignore`); duży `.glb` 243 MB wycięty
+z historii wcześniej (backup: branch `backup-pre-filter`).
 
-Szczegóły sesji: `docs/LOG_2026-08-13.md` (dziś), `docs/LOG_2026-08-12.md`.
+Szczegóły sesji: `docs/LOG_2026-08-13.md`, `docs/LOG_2026-08-12.md`.

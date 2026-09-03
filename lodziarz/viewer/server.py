@@ -163,6 +163,8 @@ class Handler(BaseHTTPRequestHandler):
                 from ..importer import load_asset
                 log.progress(10, "import")
                 asset = load_asset(input_path, log, force_up=up)
+                from ..report import validation_report
+                validation_report(asset, log)
                 log.progress(70, "preview")
                 chain = LodChain(asset_name=asset.name, lods=[asset.mesh],
                                  materials=asset.materials,
@@ -237,9 +239,22 @@ class Handler(BaseHTTPRequestHandler):
             if not str(out_dir):
                 self._json({"error": "podaj folder wyjsciowy"}, 400)
                 return
+            thr_raw = str(p.get("thresholds", "") or "").strip()
+            lod_thresholds = None
+            if thr_raw:
+                try:
+                    lod_thresholds = [float(x) for x in
+                                      thr_raw.replace(";", ",").split(",")
+                                      if x.strip()] or None
+                except ValueError:
+                    self._json({"error": f"zle progi LOD: '{thr_raw}' "
+                                         f"(np. 500,1000,2000)"}, 400)
+                    return
             opts = ProcessOptions(
                 lod_count=max(1, min(8, int(p.get("lods", 4)))),
                 lod_ratio=max(0.05, min(0.95, float(p.get("ratio", 0.5)))),
+                smooth_weld=bool(p.get("smoothWeld", False)),
+                lod_thresholds=lod_thresholds,
                 bake=bool(p.get("bake", True)),
                 baked_lods=[int(i) for i in p["bakedLods"]]
                     if isinstance(p.get("bakedLods"), list) else None,
@@ -354,7 +369,8 @@ class Handler(BaseHTTPRequestHandler):
                     fbx_path = out_root / f"{name}.fbx"
                     export_fbx_lodgroup(chain, fbx_path,
                                         data["texture_files"], log,
-                                        embed=data.get("embed", False))
+                                        embed=data.get("embed", False),
+                                        thresholds=data.get("thresholds"))
                     result["fbx"] = fbx_path.name
                     if data.get("per_lod"):
                         log.progress(55, "export FBX per LOD")

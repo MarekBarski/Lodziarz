@@ -23,6 +23,11 @@ from .logutil import PipelineLog
 class ProcessOptions:
     lod_count: int = 4
     lod_ratio: float = 0.5
+    # sklejanie hard edges przed simplify (LOD1+): wiecej redukcji na
+    # hard-surface kosztem miekszego cieniowania krawedzi; LOD0 bez zmian
+    smooth_weld: bool = False
+    # progi FbxLODGroup w cm (LOD0->1, 1->2, ...); None = auto wg rozmiaru
+    lod_thresholds: list | None = None
     bake: bool = True
     # ktore LOD-y dostaja atlas (indeksy); None = default: wszystkie OPROCZ LOD0
     # (LOD0 zwykle zostaje na oryginalnych materialach — bake dla niego to wybor)
@@ -63,6 +68,7 @@ class ProcessResult:
     lod_stats: list = field(default_factory=list)  # [{tris, verts}, ...]
     baked_mask: list = field(default_factory=list)  # bake per LOD (bool)
     cache: str = ""     # plik cache do re-exportu FBX z inna maska
+    validation: dict = field(default_factory=dict)  # raport walidacji importu
     error: str = ""
 
 
@@ -90,6 +96,9 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
         apply_manual_assignments(asset, opts.material_textures, log)
     result.asset_name = asset.name
     result.out_dir = str(out_dir)
+
+    from .report import validation_report
+    result.validation = validation_report(asset, log)
 
     texture_files: dict = {}
     baked_images: dict = {}
@@ -149,9 +158,11 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
     baked_chain = None
     if any_baked:
         baked_chain = build_lod_chain(baked_mesh, count=count,
-                                      ratio=opts.lod_ratio, log=log)
+                                      ratio=opts.lod_ratio, log=log,
+                                      smooth_weld=opts.smooth_weld)
     orig_chain = build_lod_chain(asset.mesh, count=count,
-                                 ratio=opts.lod_ratio, log=log)
+                                 ratio=opts.lod_ratio, log=log,
+                                 smooth_weld=opts.smooth_weld)
 
     if all_baked:
         materials = [MaterialData(name=f"M_{asset.name}")]
@@ -176,7 +187,8 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
         log.progress(75, "export FBX")
         fbx_path = out_dir / f"{asset.name}.fbx"
         export_fbx_lodgroup(chain, fbx_path, texture_files, log,
-                            embed=opts.fbx_embed_textures)
+                            embed=opts.fbx_embed_textures,
+                            thresholds=opts.lod_thresholds)
         result.fbx = fbx_path.name
 
         if opts.fbx_per_lod:
@@ -224,7 +236,8 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
                    materials=asset.materials, texture_files=texture_files,
                    embed=opts.fbx_embed_textures, per_lod=opts.fbx_per_lod,
                    formats={"fbx": opts.export_fbx, "glb": opts.export_glb,
-                            "obj": opts.export_obj})
+                            "obj": opts.export_obj},
+                   thresholds=opts.lod_thresholds)
         result.cache = cache_name
 
     result.baked_mask = list(mask)

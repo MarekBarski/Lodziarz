@@ -324,7 +324,8 @@ def _load_trimesh(path: Path, log: PipelineLog) -> Asset:
             log.warn(f"pominieto '{geom_name}': brak trojkatow")
             continue
         mat_id = len(materials)
-        materials.append(_convert_trimesh_material(geom, geom_name, log))
+        materials.append(_convert_trimesh_material(geom, geom_name,
+                                                   path.parent, log))
 
         verts = np.asarray(geom.vertices, dtype=np.float64)
         verts = verts @ np.asarray(transform)[:3, :3].T + np.asarray(transform)[:3, 3]
@@ -373,7 +374,41 @@ def _to_rgba(img) -> Image.Image | None:
     return None
 
 
-def _convert_trimesh_material(geom, name: str, log: PipelineLog) -> MaterialData:
+def _mtl_scalar(v) -> float | None:
+    """Wartosc liczbowa z trimesh SimpleMaterial.kwargs ('0.3', ['0.3'], 0.3)."""
+    if v is None:
+        return None
+    try:
+        f = float(np.asarray(v, dtype=np.float64).ravel()[0])
+    except (ValueError, TypeError, IndexError):
+        return None
+    return f if np.isfinite(f) else None
+
+
+def _mtl_path(v) -> str:
+    """Sciezka z kwargs — trimesh trzyma reszte linii MTL jako string/liste."""
+    if isinstance(v, (list, tuple)):
+        return " ".join(str(x) for x in v)
+    return str(v or "")
+
+
+def _mtl_image(v, base_dir: Path, log: PipelineLog) -> Image.Image | None:
+    raw = _mtl_path(v).strip()
+    if not raw:
+        return None
+    for p in (Path(raw), base_dir / raw, base_dir / Path(raw).name):
+        if p.is_file():
+            try:
+                return Image.open(p).convert("RGBA")
+            except Exception as e:
+                log.warn(f"tekstura MTL {p.name}: {e}")
+                return None
+    log.warn(f"nie znaleziono tekstury z MTL: {raw}")
+    return None
+
+
+def _convert_trimesh_material(geom, name: str, base_dir: Path,
+                              log: PipelineLog) -> MaterialData:
     out = MaterialData(name=name)
     visual = getattr(geom, "visual", None)
     mat = getattr(visual, "material", None)
@@ -423,4 +458,21 @@ def _convert_trimesh_material(geom, name: str, log: PipelineLog) -> MaterialData
             if len(d) >= 3:
                 out.base_color_factor = (d[0], d[1], d[2], 1.0)
         out.roughness_factor = 0.8
+        # nierozpoznane klucze MTL laduja w mat.kwargs (trimesh) — stamtad
+        # bierzemy przezroczystosc (d / Tr / map_d) i normalke (map_Bump)
+        kw = {str(k).lower(): v
+              for k, v in (getattr(mat, "kwargs", None) or {}).items()}
+        dv = _mtl_scalar(kw.get("d"))
+        tr = _mtl_scalar(kw.get("tr"))
+        if dv is not None:
+            out.opacity_factor = min(1.0, max(0.0, dv))
+        elif tr is not None:  # Tr = 1 - d (konwencja 3ds Max)
+            out.opacity_factor = min(1.0, max(0.0, 1.0 - tr))
+        if out.opacity_factor < 1.0:
+            log.info(f"material '{out.name}': opacity {out.opacity_factor:.2f} "
+                     f"z MTL (d/Tr)")
+        out.opacity_tex = _mtl_image(kw.get("map_d"), base_dir, log)
+        for bump_key in ("map_bump", "bump", "norm", "map_kn"):
+            if out.normal_tex is None and bump_key in kw:
+                out.normal_tex = _mtl_image(kw[bump_key], base_dir, log)
     return out

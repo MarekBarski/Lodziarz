@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 from .importer import SUPPORTED
@@ -24,6 +26,13 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--lods", type=int, default=4, help="liczba LOD-ow (default 4)")
     pr.add_argument("--ratio", type=float, default=0.5,
                     help="ratio trojkatow na LOD (default 0.5)")
+    pr.add_argument("--smooth-weld", action="store_true",
+                    help="sklej hard edges przed simplify (LOD1+): wiecej "
+                         "redukcji na hard-surface, miekksze cieniowanie "
+                         "krawedzi; LOD0 bez zmian")
+    pr.add_argument("--thresholds", default=None,
+                    help="progi LODGroup w cm, np. '500,1000,2000' "
+                         "(default: auto wg rozmiaru obiektu)")
     pr.add_argument("--no-bake", action="store_true",
                     help="bez scalania materialow / bake atlasu")
     pr.add_argument("--bake-lods", default=None,
@@ -82,6 +91,19 @@ def _collect_inputs(inputs: list[str]) -> list[Path]:
     return files
 
 
+def _parse_thresholds(raw):
+    if raw is None or not str(raw).strip():
+        return None
+    try:
+        vals = [float(x) for x in str(raw).replace(";", ",").split(",")
+                if x.strip()]
+    except ValueError:
+        print(f"zly format --thresholds '{raw}' (np. '500,1000,2000')",
+              file=sys.stderr)
+        sys.exit(2)
+    return vals or None
+
+
 def _parse_bake_lods(raw, count: int):
     if raw is None:
         return None
@@ -103,6 +125,8 @@ def run_process(args) -> int:
     opts = ProcessOptions(
         lod_count=lod_count,
         lod_ratio=min(0.95, max(0.05, args.ratio)),
+        smooth_weld=args.smooth_weld,
+        lod_thresholds=_parse_thresholds(args.thresholds),
         bake=not args.no_bake,
         baked_lods=_parse_bake_lods(args.bake_lods, lod_count),
         bake_backend=args.backend,
@@ -128,6 +152,7 @@ def run_process(args) -> int:
         return 2
     out_root = Path(args.out)
     failed = 0
+    batch: list[dict] = []
     for f in files:
         log = PipelineLog(echo=True)
         log.info(f"=== {f.name} ===")
@@ -136,10 +161,35 @@ def run_process(args) -> int:
         result = run_isolated(f, out_dir, opts, log)
         if not result.ok:
             failed += 1
+        batch.append({"input": str(f), **asdict(result)})
+    if len(files) > 1:
+        _write_batch_report(out_root, batch)
     if failed:
         print(f"\nBLEDY: {failed}/{len(files)} plikow nie przeszlo",
               file=sys.stderr)
     return 1 if failed else 0
+
+
+def _write_batch_report(out_root: Path, batch: list[dict]) -> None:
+    """Raport zbiorczy batcha: pelny JSON + skrotowy CSV."""
+    out_root.mkdir(parents=True, exist_ok=True)
+    (out_root / "lodziarz_batch_report.json").write_text(
+        json.dumps(batch, indent=2), encoding="utf-8")
+    lines = ["input;ok;lod_tris;materials;warnings;error"]
+    for r in batch:
+        tris = "/".join(str(s.get("tris", "")) for s in r.get("lod_stats", []))
+        val = r.get("validation") or {}
+        lines.append(";".join([
+            Path(r["input"]).name,
+            "1" if r.get("ok") else "0",
+            tris,
+            str(val.get("materials", "")),
+            str(len(val.get("warnings", []))),
+            str(r.get("error", "")).replace(";", ","),
+        ]))
+    (out_root / "lodziarz_batch_report.csv").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8")
+    print(f"raport zbiorczy: {out_root / 'lodziarz_batch_report.json'} + .csv")
 
 
 def main(argv=None) -> int:

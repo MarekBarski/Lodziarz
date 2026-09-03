@@ -58,6 +58,7 @@
         <label><span data-i18n="lods_count">count</span> <input id="lods" type="number" min="1" max="8" value="4"></label>
         <label>ratio <input id="ratio" type="number" min="0.05" max="0.95" step="0.05" value="0.5"></label>
       </div>
+      <label class="chk" data-i18n-title="smooth_weld_title" title="welds hard-edge vertex splits before simplify: much better reduction on hard-surface meshes, but edge shading gets softer; LOD0 stays untouched"><input id="smoothWeld" type="checkbox"> <span data-i18n="smooth_weld">smooth-weld before simplify</span></label>
     </section>
 
     <section>
@@ -112,6 +113,7 @@
       </div>
       <label class="chk"><input id="perLodFbx" type="checkbox"> FBX per LOD</label>
       <label class="chk"><input id="embedTextures" type="checkbox"> <span data-i18n="embed_tex">embed textures into FBX</span></label>
+      <label data-i18n-title="thresholds_title" title="FBX LODGroup switch distances in cm, comma separated (LOD0-&gt;1, 1-&gt;2, ...); empty = auto from object size"><span data-i18n="thresholds">LOD thresholds (cm)</span> <input id="thresholds" type="text" placeholder="auto"></label>
     </section>
 
     <section>

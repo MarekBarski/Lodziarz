@@ -17,6 +17,10 @@ from PIL import Image
 
 from .core import MaterialData, MeshData
 
+# podbij przy KAZDEJ zmianie struktury cache — load odmawia czytania
+# innej wersji zamiast pekac w losowym miejscu na starym pickle
+CACHE_VERSION = 2
+
 
 def _pack_materials(mats: list[MaterialData]) -> dict:
     images: list[bytes] = []
@@ -59,10 +63,11 @@ def save_cache(path: Path, *, asset_name: str,
                baked_lods: list[MeshData], orig_lods: list[MeshData],
                materials: list[MaterialData], texture_files: dict,
                embed: bool, per_lod: bool,
-               formats: dict | None = None) -> None:
+               formats: dict | None = None,
+               thresholds: list | None = None) -> None:
     with open(path, "wb") as f:
         pickle.dump({
-            "version": 1,
+            "version": CACHE_VERSION,
             "asset_name": asset_name,
             "baked_lods": baked_lods,
             "orig_lods": orig_lods,
@@ -71,11 +76,17 @@ def save_cache(path: Path, *, asset_name: str,
             "embed": embed,
             "per_lod": per_lod,
             "formats": formats or {"fbx": True, "glb": True, "obj": False},
+            "thresholds": list(thresholds) if thresholds else None,
         }, f)
 
 
 def load_cache(path: Path) -> dict:
     with open(path, "rb") as f:
         data = pickle.load(f)
+    ver = data.get("version")
+    if ver != CACHE_VERSION:
+        raise ValueError(
+            f"cache z innej wersji Lodziarza (v{ver}, oczekiwana "
+            f"v{CACHE_VERSION}) — przetworz asset ponownie")
     data["materials"] = _unpack_materials(data["materials"])
     return data

@@ -538,6 +538,11 @@ const I18N = {
     normal_dx_title: "normal map convention in preview",
     maps_hint: "packed ORM or separate maps; gloss = inverted rough. drag&drop PNG/JPG",
     none: "none",
+    smooth_weld: "smooth-weld before simplify",
+    smooth_weld_title: "welds hard-edge vertex splits before simplify: much better reduction on hard-surface meshes, but edge shading gets softer; LOD0 stays untouched",
+    thresholds: "LOD thresholds (cm)",
+    thresholds_title: "FBX LODGroup switch distances in cm, comma separated (LOD0->1, 1->2, ...); empty = auto from object size",
+    reexport_done: "re-exported with new bake mask",
   },
   pl: {
     input_header: "Wejscie", input_ph: "plik FBX / OBJ / glTF / GLB",
@@ -560,6 +565,11 @@ const I18N = {
     normal_dx_title: "konwencja normal mapy w podgladzie",
     maps_hint: "packed ORM albo mapy osobno; gloss = odwrocony rough. drag&drop PNG/JPG",
     none: "brak",
+    smooth_weld: "smooth-weld przed simplify",
+    smooth_weld_title: "skleja rozciecia hard edges przed simplify: duzo lepsza redukcja na hard-surface, ale cieniowanie krawedzi mieknie; LOD0 zostaje nietkniety",
+    thresholds: "progi LOD (cm)",
+    thresholds_title: "dystanse przelaczania FBX LODGroup w cm, po przecinku (LOD0->1, 1->2, ...); puste = auto wg rozmiaru obiektu",
+    reexport_done: "wyeksportowano ponownie z nowa maska bake",
   },
 };
 let currentLang = localStorage.getItem("lodziarz_lang") || "en";
@@ -748,6 +758,8 @@ $("processBtn").onclick = async () => {
     input: $("inputPath").value.trim(),
     out: $("outPath").value.trim(),
     lods: +$("lods").value, ratio: +$("ratio").value,
+    smoothWeld: $("smoothWeld").checked,
+    thresholds: $("thresholds").value.trim(),
     bake: $("bake").checked, backend: $("backend").value,
     bakedLods: bakedLodsFromUI(),
     atlas: +$("atlas").value, dilation: +$("dilation").value,
@@ -804,8 +816,11 @@ async function poll() {
     } else if (p.result.kind === "reexport") {
       const btn = document.getElementById("reexportBtn");
       if (btn) btn.disabled = false;
-      if (p.result.ok)
-        logLine("INFO FBX wyeksportowany z nowa maska: " + p.result.fbx);
+      if (p.result.ok) {
+        const files = [p.result.fbx, ...(p.result.fbx_per_lod || []),
+                       p.result.glb, ...(p.result.obj || [])].filter(Boolean);
+        logLine("INFO " + t("reexport_done") + ": " + files.join(", "));
+      }
     }
   }
 }

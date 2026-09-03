@@ -6,15 +6,17 @@
 // Uzycie: fbx_writer.exe <input.lzmesh> <output.fbx> [--embed]
 //   --embed: tekstury wbudowane w plik FBX (EXP_FBX_EMBEDDED)
 //
-// Format LZMESH v1 (little-endian):
-//   char[8]  magic = "LZMESH1\0"
+// Format LZMESH v1/v2 (little-endian):
+//   char[8]  magic = "LZMESH1\0" | "LZMESH2\0"
 //   u32 nameLen; char name[]           nazwa assetu (np. SM_Crate)
 //   u8  yUp                            1 = Y-up, 0 = Z-up (3ds Max)
 //   u8  reserved; u16 pad
 //   f32 scale                          mnoznik pozycji (m -> cm = 100)
 //   u32 numMaterials
 //     per mat: u32 len; char name[]
-//              4x (u32 len; char path[])   basecolor/normal/orm/emissive ("" = brak)
+//              v1: 4x (u32 len; char path[])  basecolor/normal/orm/emissive
+//              v2: 5x (u32 len; char path[])  + opacity ("" = brak)
+//                  f32 opacityFactor          1.0 = nieprzezroczysty
 //   u32 numLods
 //   u32 numThresholds; f32 thresholds[]    progi LODGroup w cm
 //   per LOD:
@@ -32,7 +34,8 @@ namespace {
 
 struct Material {
     std::string name;
-    std::string texBaseColor, texNormal, texOrm, texEmissive;
+    std::string texBaseColor, texNormal, texOrm, texEmissive, texOpacity;
+    float opacityFactor = 1.f;
 };
 
 struct LodMesh {
@@ -63,9 +66,11 @@ bool loadLzmesh(const char* path, Asset& a, std::string& err) {
     FILE* f = std::fopen(path, "rb");
     if (!f) { err = "nie mozna otworzyc pliku wejsciowego"; return false; }
     char magic[8] = {};
-    if (!readAll(f, magic, 8) || std::string(magic, 7) != "LZMESH1") {
+    if (!readAll(f, magic, 8) || std::string(magic, 6) != "LZMESH" ||
+        (magic[6] != '1' && magic[6] != '2')) {
         err = "zly naglowek LZMESH"; std::fclose(f); return false;
     }
+    const int version = magic[6] - '0';
     bool ok = readStr(f, a.name);
     uint8_t yUp = 1, res = 0; uint16_t pad = 0;
     ok = ok && readAll(f, &yUp, 1) && readAll(f, &res, 1) && readAll(f, &pad, 2)
@@ -78,6 +83,8 @@ bool loadLzmesh(const char* path, Asset& a, std::string& err) {
         ok = readStr(f, m.name) && readStr(f, m.texBaseColor) &&
              readStr(f, m.texNormal) && readStr(f, m.texOrm) &&
              readStr(f, m.texEmissive);
+        if (ok && version >= 2)
+            ok = readStr(f, m.texOpacity) && readAll(f, &m.opacityFactor, 4);
         a.materials.push_back(std::move(m));
     }
     uint32_t numLods = 0, numThr = 0;
@@ -197,6 +204,16 @@ int main(int argc, char** argv) {
         attachTex(scene, p, FbxSurfaceMaterial::sDiffuse, m.texBaseColor);
         attachTex(scene, p, FbxSurfaceMaterial::sNormalMap, m.texNormal);
         attachTex(scene, p, FbxSurfaceMaterial::sEmissive, m.texEmissive);
+        // przezroczystosc: mapa opacity (bialy = nieprzezroczysty) idzie do
+        // TransparentColor (konwencja 3ds Max/Maya/UE); bez mapy sam factor
+        if (!m.texOpacity.empty()) {
+            attachTex(scene, p, FbxSurfaceMaterial::sTransparentColor,
+                      m.texOpacity);
+            p->TransparencyFactor.Set(1.0);   // rozstrzyga pixel mapy
+        } else if (m.opacityFactor < 1.f) {
+            p->TransparentColor.Set(FbxDouble3(1.0, 1.0, 1.0));
+            p->TransparencyFactor.Set(1.0 - double(m.opacityFactor));
+        }
         mats.push_back(p);
     }
 

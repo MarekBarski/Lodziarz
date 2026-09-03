@@ -24,15 +24,17 @@ def _pack_str(s: str) -> bytes:
 def _write_lzmesh(path: Path, name: str, lods: list[MeshData],
                   materials: list[dict], thresholds: list[float],
                   y_up: bool = True, scale: float = 100.0) -> None:
+    """LZMESH v2: material ma 5 slotow tekstur (+ opacity) i opacity_factor."""
     with open(path, "wb") as f:
-        f.write(b"LZMESH1\0")
+        f.write(b"LZMESH2\0")
         f.write(_pack_str(name))
         f.write(struct.pack("<BBHf", 1 if y_up else 0, 0, 0, scale))
         f.write(struct.pack("<I", len(materials)))
         for m in materials:
             f.write(_pack_str(m["name"]))
-            for key in ("basecolor", "normal", "orm", "emissive"):
+            for key in ("basecolor", "normal", "orm", "emissive", "opacity"):
                 f.write(_pack_str(m.get(key, "")))
+            f.write(struct.pack("<f", float(m.get("opacity_factor", 1.0))))
         f.write(struct.pack("<II", len(lods), len(thresholds)))
         if thresholds:
             f.write(np.asarray(thresholds, dtype=np.float32).tobytes())
@@ -73,7 +75,9 @@ def _auto_thresholds(lod0: MeshData, count: int) -> list[float]:
 
 def _material_entries(chain: LodChain, texture_files: dict) -> list[dict]:
     """Tekstury atlasu podpinamy tylko pod material baked; oryginalne
-    materialy ida z sama nazwa (ich tekstury zyja przy assecie zrodlowym)."""
+    materialy ida z sama nazwa (ich tekstury zyja przy assecie zrodlowym).
+    Opacity: material baked dostaje mape z atlasu (factor 1.0 — teksture
+    rozstrzyga pixel), oryginalne materialy nios swoj opacity_factor."""
     baked_idx = chain.baked_material_index
     out = []
     for i, m in enumerate(chain.materials):
@@ -84,6 +88,8 @@ def _material_entries(chain: LodChain, texture_files: dict) -> list[dict]:
             "normal": texture_files.get("normal", "") if is_baked else "",
             "orm": texture_files.get("orm", "") if is_baked else "",
             "emissive": texture_files.get("emissive", "") if is_baked else "",
+            "opacity": texture_files.get("opacity", "") if is_baked else "",
+            "opacity_factor": 1.0 if is_baked else float(m.opacity_factor),
         })
     return out
 
@@ -93,7 +99,7 @@ def _absolutize(mats: list[dict], out_dir: Path) -> list[dict]:
     out = []
     for m in mats:
         m = dict(m)
-        for key in ("basecolor", "normal", "orm", "emissive"):
+        for key in ("basecolor", "normal", "orm", "emissive", "opacity"):
             if m.get(key):
                 m[key] = str((out_dir / m[key]).resolve())
         out.append(m)
@@ -102,13 +108,25 @@ def _absolutize(mats: list[dict], out_dir: Path) -> list[dict]:
 
 def export_fbx_lodgroup(chain: LodChain, out_path: Path,
                         texture_files: dict, log: PipelineLog,
-                        embed: bool = False) -> Path:
+                        embed: bool = False,
+                        thresholds: list | None = None) -> Path:
     """One-pass: node LODGroup <Nazwa>, dzieci <Nazwa>_LOD0..N — UE importuje
-    calosc jednym plikiem z Import Mesh LODs."""
+    calosc jednym plikiem z Import Mesh LODs.
+
+    thresholds: progi w cm (LOD0->1, 1->2, ...); None = auto wg rozmiaru.
+    Za krotka lista jest dopelniana podwajaniem ostatniego progu."""
     mats = _material_entries(chain, texture_files)
     if embed:
         mats = _absolutize(mats, out_path.parent)
-    thresholds = _auto_thresholds(chain.lods[0], len(chain.lods))
+    need = max(0, len(chain.lods) - 1)
+    if thresholds:
+        thresholds = [float(t) for t in thresholds][:need]
+        while len(thresholds) < need:
+            thresholds.append(thresholds[-1] * 2.0 if thresholds else 2000.0)
+        log.info("progi LODGroup (cm): "
+                 + ", ".join(f"{t:.0f}" for t in thresholds))
+    else:
+        thresholds = _auto_thresholds(chain.lods[0], len(chain.lods))
     with tempfile.TemporaryDirectory(prefix="lodziarz_") as td:
         lz = Path(td) / "asset.lzmesh"
         _write_lzmesh(lz, chain.asset_name, chain.lods, mats, thresholds)

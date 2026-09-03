@@ -10,7 +10,10 @@
 //   char[8]  magic = "LZMESH1\0" | "LZMESH2\0"
 //   u32 nameLen; char name[]           nazwa assetu (np. SM_Crate)
 //   u8  yUp                            1 = Y-up, 0 = Z-up (3ds Max)
-//   u8  reserved; u16 pad
+//   u8  flags                          bit 0: flat — bez node'a FbxLODGroup,
+//                                      dzieci *_LOD0..N pod zwyklym nodem
+//                                      (naming Unity); v1 pisal tu 0
+//   u16 pad
 //   f32 scale                          mnoznik pozycji (m -> cm = 100)
 //   u32 numMaterials
 //     per mat: u32 len; char name[]
@@ -47,6 +50,7 @@ struct LodMesh {
 struct Asset {
     std::string name;
     bool yUp = true;
+    bool flatLods = false;   // bez FbxLODGroup (naming Unity)
     float scale = 100.f;
     std::vector<Material> materials;
     std::vector<LodMesh> lods;
@@ -72,10 +76,11 @@ bool loadLzmesh(const char* path, Asset& a, std::string& err) {
     }
     const int version = magic[6] - '0';
     bool ok = readStr(f, a.name);
-    uint8_t yUp = 1, res = 0; uint16_t pad = 0;
-    ok = ok && readAll(f, &yUp, 1) && readAll(f, &res, 1) && readAll(f, &pad, 2)
+    uint8_t yUp = 1, flags = 0; uint16_t pad = 0;
+    ok = ok && readAll(f, &yUp, 1) && readAll(f, &flags, 1) && readAll(f, &pad, 2)
             && readAll(f, &a.scale, 4);
     a.yUp = yUp != 0;
+    a.flatLods = (flags & 1) != 0;
     uint32_t numMat = 0;
     ok = ok && readAll(f, &numMat, 4);
     for (uint32_t i = 0; ok && i < numMat; i++) {
@@ -218,18 +223,21 @@ int main(int argc, char** argv) {
     }
 
     if (a.lods.size() > 1) {
-        // LODGroup jak w Brutgenie: node-grupa + dzieci <name>_LOD<i>
+        // node-grupa + dzieci <name>_LOD<i>; atrybut FbxLODGroup tylko gdy
+        // nie flat — Unity buduje LODGroup z nazw, a FbxLODGroup ignoruje
         FbxNode* lodGroupNode = FbxNode::Create(scene, a.name.c_str());
-        FbxLODGroup* lodGroup = FbxLODGroup::Create(
-            scene, (a.name + "_LODGroup").c_str());
-        lodGroup->ThresholdsUsedAsPercentage.Set(false);
-        for (size_t i = 0; i + 1 < a.lods.size(); i++) {
-            float thr = i < a.thresholds.size() ? a.thresholds[i]
-                                                : float(2000.0 * (i + 1));
-            FbxDistance d(thr, "cm");
-            lodGroup->AddThreshold(d);
+        if (!a.flatLods) {
+            FbxLODGroup* lodGroup = FbxLODGroup::Create(
+                scene, (a.name + "_LODGroup").c_str());
+            lodGroup->ThresholdsUsedAsPercentage.Set(false);
+            for (size_t i = 0; i + 1 < a.lods.size(); i++) {
+                float thr = i < a.thresholds.size() ? a.thresholds[i]
+                                                    : float(2000.0 * (i + 1));
+                FbxDistance d(thr, "cm");
+                lodGroup->AddThreshold(d);
+            }
+            lodGroupNode->SetNodeAttribute(lodGroup);
         }
-        lodGroupNode->SetNodeAttribute(lodGroup);
         for (size_t lod = 0; lod < a.lods.size(); lod++) {
             char name[256];
             std::snprintf(name, sizeof(name), "%s_LOD%zu", a.name.c_str(), lod);

@@ -45,8 +45,11 @@ class ProcessOptions:
     texture_format: str = "png"          # png | tga
     orm_split: bool = False              # AO/Roughness/Metallic osobno zamiast ORM
     output_gloss: bool = False           # przy orm_split: glossiness zamiast roughness
-    fbx_per_lod: bool = False            # dodatkowo osobne pliki SM_*_LODn.fbx
+    fbx_per_lod: bool = False            # osobne pliki SM_*_LODn.fbx
     fbx_embed_textures: bool = False     # tekstury wbudowane w FBX
+    # FBX bez node'a FbxLODGroup: dzieci *_LOD0..N pod zwyklym nodem —
+    # Unity buduje LODGroup z nazw, a FbxLODGroup ignoruje
+    fbx_flat_lods: bool = False
     # formaty wyjscia wg wyboru uzytkownika (viewer i tak dostaje swoj
     # podglad GLB w debug/, niezaleznie od tych flag)
     export_fbx: bool = True
@@ -188,14 +191,17 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
         fbx_path = out_dir / f"{asset.name}.fbx"
         export_fbx_lodgroup(chain, fbx_path, texture_files, log,
                             embed=opts.fbx_embed_textures,
-                            thresholds=opts.lod_thresholds)
+                            thresholds=opts.lod_thresholds,
+                            flat=opts.fbx_flat_lods)
         result.fbx = fbx_path.name
 
-        if opts.fbx_per_lod:
-            log.progress(82, "export FBX per LOD")
-            paths = export_fbx_per_lod(chain, out_dir, texture_files, log,
-                                       embed=opts.fbx_embed_textures)
-            result.fbx_per_lod = [p.name for p in paths]
+    # per LOD niezaleznie od pliku zbiorczego (preset max/loose chce
+    # TYLKO osobne pliki, bez LODGroup)
+    if opts.fbx_per_lod:
+        log.progress(82, "export FBX per LOD")
+        paths = export_fbx_per_lod(chain, out_dir, texture_files, log,
+                                   embed=opts.fbx_embed_textures)
+        result.fbx_per_lod = [p.name for p in paths]
 
     if opts.export_obj:
         log.progress(86, "export OBJ")
@@ -237,7 +243,8 @@ def _process(input_path: Path, out_dir: Path, opts: ProcessOptions,
                    embed=opts.fbx_embed_textures, per_lod=opts.fbx_per_lod,
                    formats={"fbx": opts.export_fbx, "glb": opts.export_glb,
                             "obj": opts.export_obj},
-                   thresholds=opts.lod_thresholds)
+                   thresholds=opts.lod_thresholds,
+                   flat=opts.fbx_flat_lods)
         result.cache = cache_name
 
     result.baked_mask = list(mask)

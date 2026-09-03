@@ -19,7 +19,7 @@ from .core import MaterialData, MeshData
 
 # podbij przy KAZDEJ zmianie struktury cache — load odmawia czytania
 # innej wersji zamiast pekac w losowym miejscu na starym pickle
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 
 
 def _pack_materials(mats: list[MaterialData]) -> dict:
@@ -64,7 +64,8 @@ def save_cache(path: Path, *, asset_name: str,
                materials: list[MaterialData], texture_files: dict,
                embed: bool, per_lod: bool,
                formats: dict | None = None,
-               thresholds: list | None = None) -> None:
+               thresholds: list | None = None,
+               flat: bool = False) -> None:
     with open(path, "wb") as f:
         pickle.dump({
             "version": CACHE_VERSION,
@@ -77,6 +78,7 @@ def save_cache(path: Path, *, asset_name: str,
             "per_lod": per_lod,
             "formats": formats or {"fbx": True, "glb": True, "obj": False},
             "thresholds": list(thresholds) if thresholds else None,
+            "flat": flat,
         }, f)
 
 

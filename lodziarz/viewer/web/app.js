@@ -543,6 +543,11 @@ const I18N = {
     thresholds: "LOD thresholds (cm)",
     thresholds_title: "FBX LODGroup switch distances in cm, comma separated (LOD0->1, 1->2, ...); empty = auto from object size",
     reexport_done: "re-exported with new bake mask",
+    preset: "preset", preset_custom: "custom",
+    preset_loose: "loose (no packing)",
+    preset_title: "named defaults for a target engine; changing any control below switches back to custom",
+    flat_fbx: "FBX without LODGroup (Unity)",
+    flat_fbx_title: "children *_LOD0..N under a plain node, no FbxLODGroup — Unity builds its LODGroup from names and ignores the FbxLODGroup node",
   },
   pl: {
     input_header: "Wejscie", input_ph: "plik FBX / OBJ / glTF / GLB",
@@ -570,6 +575,11 @@ const I18N = {
     thresholds: "progi LOD (cm)",
     thresholds_title: "dystanse przelaczania FBX LODGroup w cm, po przecinku (LOD0->1, 1->2, ...); puste = auto wg rozmiaru obiektu",
     reexport_done: "wyeksportowano ponownie z nowa maska bake",
+    preset: "preset", preset_custom: "wlasne",
+    preset_loose: "luzem (bez pakowania)",
+    preset_title: "nazwane defaulty pod silnik docelowy; reczna zmiana kontrolki ponizej wraca na wlasne",
+    flat_fbx: "FBX bez LODGroup (Unity)",
+    flat_fbx_title: "dzieci *_LOD0..N pod zwyklym nodem, bez FbxLODGroup — Unity buduje LODGroup z nazw, a node FbxLODGroup ignoruje",
   },
 };
 let currentLang = localStorage.getItem("lodziarz_lang") || "en";
@@ -628,6 +638,46 @@ function bakedLodsFromUI() {
   return [...$("bakeLodsRow").querySelectorAll("input")]
     .filter((c) => c.checked).map((c) => +c.dataset.lod);
 }
+
+// ------------------------------------------------------------ presety exportu
+// nazwane zestawy kontrolek pod target; reczna zmiana ponizej = custom.
+// wartosci lustrzane do lodziarz/presets.py (backend jest zrodlem prawdy
+// dla CLI; GUI ustawia kontrolki, wiec user widzi co preset zmienil)
+const EXPORT_PRESETS = {
+  unreal: { exportFbx: true,  exportGlb: true,  exportObj: false,
+            perLodFbx: false, flatFbx: false, embedTextures: false,
+            ormMode: "packed", outputNormalDx: true },
+  unity:  { exportFbx: true,  exportGlb: false, exportObj: false,
+            perLodFbx: false, flatFbx: true,  embedTextures: false,
+            ormMode: "split_gloss", outputNormalDx: false },
+  godot:  { exportFbx: false, exportGlb: true,  exportObj: false,
+            perLodFbx: false, flatFbx: false, embedTextures: false,
+            ormMode: "packed", outputNormalDx: false },
+  max:    { exportFbx: false, exportGlb: false, exportObj: false,
+            perLodFbx: true,  flatFbx: false, embedTextures: true,
+            ormMode: "packed", outputNormalDx: true },
+  loose:  { exportFbx: false, exportGlb: false, exportObj: false,
+            perLodFbx: true,  flatFbx: false, embedTextures: false,
+            ormMode: "split", outputNormalDx: true },
+};
+const PRESET_CONTROLS = ["exportFbx", "exportGlb", "exportObj", "perLodFbx",
+                         "flatFbx", "embedTextures", "ormMode", "outputNormalDx"];
+
+$("preset").onchange = () => {
+  const p = EXPORT_PRESETS[$("preset").value];
+  if (!p) return;
+  for (const [id, v] of Object.entries(p)) {
+    const el = $(id);
+    if (el.type === "checkbox") el.checked = v;
+    else el.value = v;
+  }
+};
+// reczna zmiana kontrolki objetej presetem -> wracamy na custom
+PRESET_CONTROLS.forEach((id) => {
+  $(id).addEventListener("change", (e) => {
+    if (e.isTrusted) $("preset").value = "";
+  });
+});
 
 function logLine(text, cls) {
   const div = document.createElement("div");
@@ -772,6 +822,7 @@ $("processBtn").onclick = async () => {
     exportGlb: $("exportGlb").checked,
     exportObj: $("exportObj").checked,
     perLodFbx: $("perLodFbx").checked,
+    flatFbx: $("flatFbx").checked,
     embedTextures: $("embedTextures").checked,
     up: $("upAxis").value,
   };

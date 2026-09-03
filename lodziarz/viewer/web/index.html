@@ -106,12 +106,23 @@
 
     <section>
       <h2>Export</h2>
+      <label data-i18n-title="preset_title" title="named defaults for a target engine; changing any control below switches back to custom"><span data-i18n="preset">preset</span>
+        <select id="preset">
+          <option value="" selected data-i18n="preset_custom">custom</option>
+          <option value="unreal">Unreal</option>
+          <option value="unity">Unity</option>
+          <option value="godot">Godot</option>
+          <option value="max">3ds Max preview</option>
+          <option value="loose" data-i18n="preset_loose">loose (no packing)</option>
+        </select>
+      </label>
       <div id="formatsRow">
         <label class="chk"><input id="exportFbx" type="checkbox" checked> FBX</label>
         <label class="chk"><input id="exportGlb" type="checkbox" checked> GLB</label>
         <label class="chk"><input id="exportObj" type="checkbox"> OBJ</label>
       </div>
       <label class="chk"><input id="perLodFbx" type="checkbox"> FBX per LOD</label>
+      <label class="chk" data-i18n-title="flat_fbx_title" title="children *_LOD0..N under a plain node, no FbxLODGroup — Unity builds its LODGroup from names and ignores the FbxLODGroup node"><input id="flatFbx" type="checkbox"> <span data-i18n="flat_fbx">FBX without LODGroup (Unity)</span></label>
       <label class="chk"><input id="embedTextures" type="checkbox"> <span data-i18n="embed_tex">embed textures into FBX</span></label>
       <label data-i18n-title="thresholds_title" title="FBX LODGroup switch distances in cm, comma separated (LOD0-&gt;1, 1-&gt;2, ...); empty = auto from object size"><span data-i18n="thresholds">LOD thresholds (cm)</span> <input id="thresholds" type="text" placeholder="auto"></label>
     </section>

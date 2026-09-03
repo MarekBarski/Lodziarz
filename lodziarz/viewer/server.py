@@ -270,6 +270,7 @@ class Handler(BaseHTTPRequestHandler):
                 output_gloss=str(p.get("ormMode", "packed")) == "split_gloss",
                 fbx_per_lod=bool(p.get("perLodFbx", False)),
                 fbx_embed_textures=bool(p.get("embedTextures", False)),
+                fbx_flat_lods=bool(p.get("flatFbx", False)),
                 export_fbx=bool(p.get("exportFbx", True)),
                 export_glb=bool(p.get("exportGlb", True)),
                 export_obj=bool(p.get("exportObj", False)),
@@ -370,14 +371,16 @@ class Handler(BaseHTTPRequestHandler):
                     export_fbx_lodgroup(chain, fbx_path,
                                         data["texture_files"], log,
                                         embed=data.get("embed", False),
-                                        thresholds=data.get("thresholds"))
+                                        thresholds=data.get("thresholds"),
+                                        flat=data.get("flat", False))
                     result["fbx"] = fbx_path.name
-                    if data.get("per_lod"):
-                        log.progress(55, "export FBX per LOD")
-                        paths = export_fbx_per_lod(
-                            chain, out_root, data["texture_files"], log,
-                            embed=data.get("embed", False))
-                        result["fbx_per_lod"] = [pp.name for pp in paths]
+                # per LOD niezaleznie od pliku zbiorczego (preset max/loose)
+                if data.get("per_lod"):
+                    log.progress(55, "export FBX per LOD")
+                    paths = export_fbx_per_lod(
+                        chain, out_root, data["texture_files"], log,
+                        embed=data.get("embed", False))
+                    result["fbx_per_lod"] = [pp.name for pp in paths]
 
                 if formats.get("obj", False):
                     log.progress(70, "export OBJ")

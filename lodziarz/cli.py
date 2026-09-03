@@ -10,6 +10,7 @@ from pathlib import Path
 from .importer import SUPPORTED
 from .logutil import PipelineLog
 from .pipeline import ProcessOptions
+from .presets import PRESETS
 from .worker import run_isolated
 
 
@@ -23,6 +24,12 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("input", nargs="+",
                     help="pliki wejsciowe (FBX/OBJ/glTF/GLB) lub katalog")
     pr.add_argument("-o", "--out", required=True, help="katalog wyjsciowy")
+    pr.add_argument("--preset", default=None, choices=sorted(PRESETS),
+                    help="zestaw domyslnych opcji pod target: unreal (FBX "
+                         "LODGroup, DX, packed ORM), unity (FBX plaski, GL, "
+                         "gloss osobno), godot (tylko GLB, GL), max (FBX per "
+                         "LOD, embed), loose (mapy osobno, FBX per LOD); "
+                         "jawne flagi nadpisuja preset")
     pr.add_argument("--lods", type=int, default=4, help="liczba LOD-ow (default 4)")
     pr.add_argument("--ratio", type=float, default=0.5,
                     help="ratio trojkatow na LOD (default 0.5)")
@@ -61,6 +68,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="wejsciowe normalki sa OpenGL (default: DirectX)")
     pr.add_argument("--per-lod-fbx", action="store_true",
                     help="dodatkowo kazdy LOD osobnym plikiem SM_*_LODn.fbx")
+    pr.add_argument("--flat-fbx", action="store_true",
+                    help="FBX bez node'a FbxLODGroup — dzieci *_LOD0..N "
+                         "(konwencja nazw Unity)")
     pr.add_argument("--embed-textures", action="store_true",
                     help="wbuduj tekstury do pliku FBX")
     pr.add_argument("--no-fbx", action="store_true", help="bez exportu FBX")
@@ -122,6 +132,27 @@ def _parse_bake_lods(raw, count: int):
 
 def run_process(args) -> int:
     lod_count = max(1, args.lods)
+    # preset = baza dla pol formatu/konwencji; jawna flaga CLI nadpisuje
+    # (flagi sa "wlaczajace" — brak flagi zostawia wartosc presetu)
+    kw = dict(PRESETS[args.preset]) if args.preset else {}
+    if args.normal_gl:
+        kw["output_normal_directx"] = False
+    if args.split_orm:
+        kw["orm_split"] = True
+    if args.gloss:
+        kw["output_gloss"] = True
+    if args.per_lod_fbx:
+        kw["fbx_per_lod"] = True
+    if args.flat_fbx:
+        kw["fbx_flat_lods"] = True
+    if args.embed_textures:
+        kw["fbx_embed_textures"] = True
+    if args.no_fbx:
+        kw["export_fbx"] = False
+    if args.no_glb:
+        kw["export_glb"] = False
+    if args.obj:
+        kw["export_obj"] = True
     opts = ProcessOptions(
         lod_count=lod_count,
         lod_ratio=min(0.95, max(0.05, args.ratio)),
@@ -135,16 +166,9 @@ def run_process(args) -> int:
         ssaa=args.ssaa,
         cage_offset=max(0.0, args.cage_offset),
         input_normal_directx=not args.input_normal_gl,
-        output_normal_directx=not args.normal_gl,
         texture_format="tga" if args.tga else "png",
-        orm_split=args.split_orm,
-        output_gloss=args.gloss,
-        fbx_per_lod=args.per_lod_fbx,
-        fbx_embed_textures=args.embed_textures,
-        export_fbx=not args.no_fbx,
-        export_glb=not args.no_glb,
-        export_obj=args.obj,
         up_axis=args.up,
+        **kw,
     )
     files = _collect_inputs(args.input)
     if not files:

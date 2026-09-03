@@ -63,12 +63,34 @@ CLI:
 ```
 Lodziarz.exe process model.fbx -o out\model --lods 4 --ratio 0.5 --atlas 2048
 Lodziarz.exe process folder_z_modelami -o out --no-bake --per-lod-fbx
-opcje: --lods N --ratio R --smooth-weld --thresholds "500,1000,2000"
+opcje: --preset unreal|unity|godot|max|loose
+       --lods N --ratio R --smooth-weld --thresholds "500,1000,2000"
        --no-bake --bake-lods "1,2,3"|all|none --backend texel|raycast|cameras26
        --atlas 512..4096 --dilation PX --ssaa 1|2|4 --cage-offset M --tga
        --split-orm --gloss --normal-gl --input-normal-gl
-       --per-lod-fbx --embed-textures --no-fbx --no-glb --obj --up auto|y|z
+       --per-lod-fbx --flat-fbx --embed-textures --no-fbx --no-glb --obj
+       --up auto|y|z
 ```
+
+### Presety exportu
+
+Preset = nazwany zestaw domyślnych wartości istniejących opcji (dropdown
+w GUI Export + `--preset` w CLI). Ustawia tylko format i konwencje —
+thresholds / atlas / SSAA / bake zostają poza presetem (zależą od assetu,
+nie od silnika). Jawne flagi CLI / ręczna zmiana kontrolki w GUI nadpisują
+preset (GUI wraca wtedy na "custom").
+
+| Preset | FBX | GLB | Normal | Mapy AO/R/M | Uwagi |
+|---|---|---|---|---|---|
+| **unreal** | LODGroup | tak | DirectX | packed ORM | dzisiejsze defaulty; UE importuje jednym plikiem z *Import Mesh LODs* |
+| **unity** | płaski (`_LOD0..N`, bez FbxLODGroup) | — | OpenGL | osobno + glossiness | Unity buduje LODGroup z nazw; node FbxLODGroup ignoruje |
+| **godot** | — | tak | OpenGL | packed ORM | GLB niesie cały chain LOD jako nody — visibility ranges spina się w edytorze (auto-LOD Godota nie bake'uje materiałów) |
+| **max** | per LOD + embed | — | DirectX | packed ORM | 3ds Max nie czyta FbxLODGroup; plik do obejrzenia od ręki |
+| **loose** | per LOD | — | DirectX | osobno (roughness) | nic nie spakowane w jeden worek |
+
+Skala/osie: bez znaczenia dla targetu — FBX niesie jednostki (cm) i osie
+w nagłówku; UE jest natywnie cm/Z-up, Unity sam konwertuje (Scale Factor /
+Convert Units). Piszemy cm + Y-up.
 
 Batch po katalogu (>1 plik) zapisuje raport zbiorczy
 `lodziarz_batch_report.json` (pełne wyniki) + `.csv` (skrót: plik, ok,
@@ -209,6 +231,7 @@ lodziarz/
   lod.py             łańcuch LOD (meshoptimizer) + smooth-weld
   meshopt.py         ctypes binding meshoptimizer.dll
   cache.py           cache re-exportu (wersjonowany pickle)
+  presets.py         presety exportu (unreal/unity/godot/max/loose)
   exporter/          fbx.py (LZMESH2 -> fbx_writer.exe), glb.py, obj.py, textures.py
   pipeline.py        orkiestracja + ProcessOptions
   cli.py             CLI + raport zbiorczy batcha

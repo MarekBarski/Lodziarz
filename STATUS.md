@@ -1,8 +1,25 @@
 # STATUS
 
-**Wersja:** 0.8.0 (2026-09-03) — smooth-weld, progi LODGroup, opacity w FBX
-(LZMESH2), walidacja importu, raport batcha, testy pytest. Projekt wrócił
-do aktywnego rozwoju (decyzja Marka 2026-09-03).
+**Wersja:** 0.8.1 (2026-09-03) — presety exportu (unreal/unity/godot/max/loose)
++ płaski FBX dla Unity. Wcześniej tego dnia 0.8.0: smooth-weld, progi
+LODGroup, opacity w FBX (LZMESH2), walidacja importu, raport batcha, testy
+pytest. Projekt wrócił do aktywnego rozwoju (decyzja Marka 2026-09-03).
+
+## Nowe w 0.8.1 (2026-09-03)
+
+- **presety exportu** (`presets.py`, dropdown GUI + `--preset`): unreal /
+  unity / godot / max / loose — projekt uzgodniony Claude+Codex, GO Marka;
+  preset ustawia TYLKO format/konwencje, jawne flagi nadpisują, ręczna
+  zmiana kontrolki w GUI wraca na "custom"
+- **płaski FBX** (`--flat-fbx`, checkbox GUI): dzieci `*_LOD0..N` bez
+  node'a FbxLODGroup — Unity buduje LODGroup z konwencji nazw, a FbxLODGroup
+  ignoruje (Unity Issue Tracker); flags bit 0 w nagłówku LZMESH
+- FBX per LOD niezależny od pliku zbiorczego (preset max/loose robi TYLKO
+  osobne pliki); cache v3 (dodane pole `flat`)
+- fakty silnikowe (zweryfikowane przez Codexa): Unity `*_LOD0` naming
+  oficjalny; skala cm / osie bez znaczenia (importery konwertują); Godot 4
+  nie importuje autorskiego LOD chaina — GLB z nodami + visibility ranges;
+  CryEngine `$LOD1` odłożony; HDRP mask map (MADS) odłożony
 
 ## Architektura bake (NIE ZMIENIAĆ bez zgody Marka)
 

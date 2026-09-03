@@ -23,12 +23,17 @@ def _pack_str(s: str) -> bytes:
 
 def _write_lzmesh(path: Path, name: str, lods: list[MeshData],
                   materials: list[dict], thresholds: list[float],
-                  y_up: bool = True, scale: float = 100.0) -> None:
-    """LZMESH v2: material ma 5 slotow tekstur (+ opacity) i opacity_factor."""
+                  y_up: bool = True, scale: float = 100.0,
+                  flat: bool = False) -> None:
+    """LZMESH v2: material ma 5 slotow tekstur (+ opacity) i opacity_factor.
+
+    flat: bajt flags (dawny reserved) bit 0 — FBX bez node'a FbxLODGroup,
+    dzieci *_LOD0..N pod zwyklym nodem (konwencja nazw Unity)."""
     with open(path, "wb") as f:
         f.write(b"LZMESH2\0")
         f.write(_pack_str(name))
-        f.write(struct.pack("<BBHf", 1 if y_up else 0, 0, 0, scale))
+        f.write(struct.pack("<BBHf", 1 if y_up else 0, 1 if flat else 0,
+                            0, scale))
         f.write(struct.pack("<I", len(materials)))
         for m in materials:
             f.write(_pack_str(m["name"]))
@@ -109,27 +114,36 @@ def _absolutize(mats: list[dict], out_dir: Path) -> list[dict]:
 def export_fbx_lodgroup(chain: LodChain, out_path: Path,
                         texture_files: dict, log: PipelineLog,
                         embed: bool = False,
-                        thresholds: list | None = None) -> Path:
+                        thresholds: list | None = None,
+                        flat: bool = False) -> Path:
     """One-pass: node LODGroup <Nazwa>, dzieci <Nazwa>_LOD0..N — UE importuje
     calosc jednym plikiem z Import Mesh LODs.
 
     thresholds: progi w cm (LOD0->1, 1->2, ...); None = auto wg rozmiaru.
-    Za krotka lista jest dopelniana podwajaniem ostatniego progu."""
+    Za krotka lista jest dopelniana podwajaniem ostatniego progu.
+    flat: bez node'a FbxLODGroup (Unity buduje LODGroup z nazw *_LOD0..N,
+    a FbxLODGroup ignoruje) — progi wtedy nie maja sensu i sa pomijane."""
     mats = _material_entries(chain, texture_files)
     if embed:
         mats = _absolutize(mats, out_path.parent)
-    need = max(0, len(chain.lods) - 1)
-    if thresholds:
-        thresholds = [float(t) for t in thresholds][:need]
-        while len(thresholds) < need:
-            thresholds.append(thresholds[-1] * 2.0 if thresholds else 2000.0)
-        log.info("progi LODGroup (cm): "
-                 + ", ".join(f"{t:.0f}" for t in thresholds))
+    if flat:
+        thresholds = []
+        log.info("FBX plaski (bez FbxLODGroup) — naming *_LOD0..N dla Unity")
     else:
-        thresholds = _auto_thresholds(chain.lods[0], len(chain.lods))
+        need = max(0, len(chain.lods) - 1)
+        if thresholds:
+            thresholds = [float(t) for t in thresholds][:need]
+            while len(thresholds) < need:
+                thresholds.append(thresholds[-1] * 2.0 if thresholds
+                                  else 2000.0)
+            log.info("progi LODGroup (cm): "
+                     + ", ".join(f"{t:.0f}" for t in thresholds))
+        else:
+            thresholds = _auto_thresholds(chain.lods[0], len(chain.lods))
     with tempfile.TemporaryDirectory(prefix="lodziarz_") as td:
         lz = Path(td) / "asset.lzmesh"
-        _write_lzmesh(lz, chain.asset_name, chain.lods, mats, thresholds)
+        _write_lzmesh(lz, chain.asset_name, chain.lods, mats, thresholds,
+                      flat=flat)
         _run_writer(lz, out_path, log, embed=embed)
     return out_path
 
